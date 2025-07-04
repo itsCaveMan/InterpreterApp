@@ -3,588 +3,73 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Media Devices</title>
+    <title>Interpreter App</title>
     <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 1000px;
-            margin: 0 auto;
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
             padding: 20px;
-            background-color: #f5f5f5;
+            line-height: 1.5;
         }
-        .container {
-            background: white;
-            border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
+
         h1 {
-            color: #333;
             text-align: center;
-            margin-bottom: 30px;
+            color: #333;
+            margin-bottom: 40px;
         }
-        .device-section {
-            margin-bottom: 30px;
+
+        .app-list {
+            list-style: none;
+            padding: 0;
         }
-        .device-section h2 {
+
+        .app-item {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+
+        .app-item h2 {
+            margin: 0 0 10px 0;
             color: #555;
-            border-bottom: 2px solid #007acc;
-            padding-bottom: 10px;
-            margin-bottom: 15px;
         }
-        .device-item {
-            background: #f8f9fa;
-            border: 1px solid #e9ecef;
-            border-radius: 6px;
-            padding: 15px;
-            margin-bottom: 10px;
-            transition: all 0.2s ease;
-        }
-        .device-item:hover {
-            background: #e9ecef;
-            transform: translateY(-1px);
-        }
-        .device-name {
-            font-weight: bold;
-            color: #333;
-            margin-bottom: 5px;
-        }
-        .device-id {
-            font-family: monospace;
-            font-size: 12px;
+
+        .app-item p {
+            margin: 0 0 15px 0;
             color: #666;
-            word-break: break-all;
         }
-        .device-group {
-            font-size: 12px;
-            color: #888;
-            margin-top: 5px;
-        }
-        .refresh-btn {
+
+        .app-link {
+            display: inline-block;
             background: #007acc;
             color: white;
-            border: none;
             padding: 10px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 16px;
-            margin-bottom: 20px;
+            text-decoration: none;
+            border-radius: 3px;
         }
-        .refresh-btn:hover {
+
+        .app-link:hover {
             background: #005a9e;
-        }
-        .error {
-            color: #dc3545;
-            background: #f8d7da;
-            border: 1px solid #f5c6cb;
-            border-radius: 5px;
-            padding: 10px;
-            margin-bottom: 20px;
-        }
-        .loading {
-            text-align: center;
-            color: #666;
-            font-style: italic;
-        }
-        .test-btn {
-            background: #28a745;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-            margin-left: 10px;
-        }
-        .test-btn:hover {
-            background: #218838;
-        }
-        .test-btn:disabled {
-            background: #6c757d;
-            cursor: not-allowed;
-        }
-        .stop-btn {
-            background: #dc3545;
-        }
-        .stop-btn:hover {
-            background: #c82333;
-        }
-        .visualization {
-            margin-top: 15px;
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 6px;
-            border: 1px solid #e9ecef;
-        }
-        .audio-meter {
-            width: 100%;
-            height: 20px;
-            background: #e9ecef;
-            border-radius: 10px;
-            overflow: hidden;
-            margin: 10px 0;
-        }
-        .audio-level {
-            height: 100%;
-            background: linear-gradient(90deg, #28a745, #ffc107, #dc3545);
-            width: 0%;
-            transition: width 0.1s ease;
-        }
-        .waveform {
-            width: 100%;
-            height: 60px;
-            background: #000;
-            border-radius: 4px;
-            margin: 10px 0;
-        }
-        .controls {
-            display: flex;
-            gap: 10px;
-            margin-top: 10px;
-        }
-        .control-btn {
-            background: #6c757d;
-            color: white;
-            border: none;
-            padding: 6px 12px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-        }
-        .control-btn:hover {
-            background: #5a6268;
-        }
-        .control-btn.active {
-            background: #007acc;
-        }
-        .status {
-            font-size: 12px;
-            color: #666;
-            margin-top: 5px;
-        }
-        .status.recording {
-            color: #dc3545;
-            font-weight: bold;
-        }
-        .status.playing {
-            color: #28a745;
-            font-weight: bold;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Media Devices</h1>
+    <h1>Interpreter App</h1>
+    
+    <ul class="app-list">
+        <li class="app-item">
+            <h2>Voice Assistant</h2>
+            <p>Real-time voice chat with OpenAI assistant</p>
+            <a href="2wayInterpretation.html" class="app-link">Open</a>
+        </li>
         
-        <button class="refresh-btn" onclick="loadDevices()">Refresh Devices</button>
-        
-        <div id="error-message" class="error" style="display: none;"></div>
-        
-        <div class="device-section">
-            <h2>🎤 Microphone Inputs</h2>
-            <div id="microphones" class="loading">Loading microphones...</div>
-        </div>
-        
-        <div class="device-section">
-            <h2>🔊 Speaker Outputs</h2>
-            <div id="speakers" class="loading">Loading speakers...</div>
-        </div>
-    </div>
-
-    <script>
-        let audioContext;
-        let oscillator;
-        let gainNode;
-        let isPlaying = false;
-        
-        // Track recording state per device
-        const deviceStates = new Map();
-
-        async function loadDevices() {
-            try {
-                // Request permission for microphone access
-                await navigator.mediaDevices.getUserMedia({ audio: true });
-                
-                // Get all audio input devices (microphones)
-                const devices = await navigator.mediaDevices.enumerateDevices();
-                const audioInputs = devices.filter(device => device.kind === 'audioinput');
-                const audioOutputs = devices.filter(device => device.kind === 'audiooutput');
-                
-                displayDevices('microphones', audioInputs, true);
-                displayDevices('speakers', audioOutputs, false);
-                
-                // Hide any previous error messages
-                document.getElementById('error-message').style.display = 'none';
-                
-            } catch (error) {
-                console.error('Error accessing media devices:', error);
-                showError('Permission denied or error accessing media devices. Please allow microphone access and try again.');
-            }
-        }
-        
-        function displayDevices(containerId, devices, isInput) {
-            const container = document.getElementById(containerId);
-            
-            if (devices.length === 0) {
-                container.innerHTML = '<div class="device-item">No devices found</div>';
-                return;
-            }
-            
-            container.innerHTML = devices.map(device => {
-                const testButton = isInput ? 
-                    `<button class="test-btn" onclick="toggleMicrophone('${device.deviceId}')">Start Recording</button>` :
-                    `<button class="test-btn" onclick="testSpeaker('${device.deviceId}')">Test Sound</button>`;
-                
-                const visualization = isInput ? 
-                    `<div class="visualization" id="viz-${device.deviceId}" style="display: none;">
-                        <div class="audio-meter">
-                            <div class="audio-level" id="level-${device.deviceId}"></div>
-                        </div>
-                        <canvas class="waveform" id="wave-${device.deviceId}"></canvas>
-                        <div class="controls">
-                            <button class="control-btn" onclick="toggleWaveform('${device.deviceId}')">Toggle Waveform</button>
-                        </div>
-                        <div class="status" id="status-${device.deviceId}">Ready</div>
-                    </div>` : '';
-                
-                return `
-                    <div class="device-item">
-                        <div class="device-name">${device.label || 'Unknown Device'}</div>
-                        <div class="device-id">ID: ${device.deviceId}</div>
-                        <div class="device-group">Group: ${device.groupId}</div>
-                        ${testButton}
-                        ${visualization}
-                    </div>
-                `;
-            }).join('');
-        }
-        
-        async function toggleMicrophone(deviceId) {
-            const button = event.target;
-            const vizDiv = document.getElementById(`viz-${deviceId}`);
-            const statusDiv = document.getElementById(`status-${deviceId}`);
-            
-            const deviceState = deviceStates.get(deviceId);
-            const isCurrentlyRecording = deviceState && deviceState.isRecording;
-            
-            if (!isCurrentlyRecording) {
-                try {
-                    await startRecording(deviceId);
-                    button.textContent = 'Stop Recording';
-                    button.classList.add('stop-btn');
-                    vizDiv.style.display = 'block';
-                    statusDiv.textContent = 'Recording...';
-                    statusDiv.className = 'status recording';
-                } catch (error) {
-                    showError('Failed to start recording: ' + error.message);
-                }
-            } else {
-                stopRecording(deviceId);
-                button.textContent = 'Start Recording';
-                button.classList.remove('stop-btn');
-                vizDiv.style.display = 'none';
-                statusDiv.textContent = 'Ready';
-                statusDiv.className = 'status';
-            }
-        }
-        
-        async function startRecording(deviceId) {
-            if (!audioContext) {
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            }
-            
-            // Resume audio context if it's suspended
-            if (audioContext.state === 'suspended') {
-                await audioContext.resume();
-            }
-            
-            const stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    deviceId: deviceId ? { exact: deviceId } : undefined
-                }
-            });
-            
-            const microphone = audioContext.createMediaStreamSource(stream);
-            const analyser = audioContext.createAnalyser();
-            analyser.fftSize = 256;
-            analyser.smoothingTimeConstant = 0.8;
-            
-            microphone.connect(analyser);
-            
-            // Store device-specific state
-            deviceStates.set(deviceId, {
-                isRecording: true,
-                microphone: microphone,
-                analyser: analyser,
-                stream: stream
-            });
-            
-            // Small delay to ensure audio context is ready
-            setTimeout(() => {
-                // Start visualization
-                visualizeAudio(deviceId);
-            }, 100);
-        }
-        
-        function stopRecording(deviceId) {
-            const deviceState = deviceStates.get(deviceId);
-            if (deviceState) {
-                if (deviceState.stream) {
-                    deviceState.stream.getTracks().forEach(track => track.stop());
-                }
-                if (deviceState.microphone) {
-                    deviceState.microphone.disconnect();
-                }
-                deviceStates.delete(deviceId);
-            }
-            if (oscillator) {
-                oscillator.stop();
-                oscillator = null;
-            }
-        }
-        
-        function visualizeAudio(deviceId) {
-            const deviceState = deviceStates.get(deviceId);
-            if (!deviceState || !deviceState.analyser) return;
-            
-            const analyser = deviceState.analyser;
-            const bufferLength = analyser.frequencyBinCount;
-            const dataArray = new Uint8Array(bufferLength);
-            const levelDiv = document.getElementById(`level-${deviceId}`);
-            const canvas = document.getElementById(`wave-${deviceId}`);
-            const ctx = canvas.getContext('2d');
-            
-            // Set canvas dimensions properly
-            canvas.width = canvas.offsetWidth || 400;
-            canvas.height = canvas.offsetHeight || 60;
-            
-            // Ensure canvas is visible
-            canvas.style.display = 'block';
-            
-            function draw() {
-                const currentDeviceState = deviceStates.get(deviceId);
-                if (!currentDeviceState || !currentDeviceState.isRecording) return;
-                
-                requestAnimationFrame(draw);
-                
-                // Get time domain data for waveform
-                analyser.getByteTimeDomainData(dataArray);
-                
-                // Update level meter using frequency data
-                const freqData = new Uint8Array(bufferLength);
-                analyser.getByteFrequencyData(freqData);
-                const average = freqData.reduce((a, b) => a + b) / bufferLength;
-                levelDiv.style.width = (average / 255 * 100) + '%';
-                
-                // Draw waveform
-                ctx.fillStyle = '#000';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                
-                ctx.lineWidth = 2;
-                ctx.strokeStyle = '#00ff00';
-                ctx.beginPath();
-                
-                const sliceWidth = canvas.width / bufferLength;
-                let x = 0;
-                
-                for (let i = 0; i < bufferLength; i++) {
-                    const v = dataArray[i] / 128.0;
-                    const y = (v * canvas.height / 2) + (canvas.height / 2);
-                    
-                    if (i === 0) {
-                        ctx.moveTo(x, y);
-                    } else {
-                        ctx.lineTo(x, y);
-                    }
-                    
-                    x += sliceWidth;
-                }
-                
-                ctx.stroke();
-            }
-            
-            draw();
-        }
-        
-        function toggleWaveform(deviceId) {
-            const canvas = document.getElementById(`wave-${deviceId}`);
-            const button = event.target;
-            
-            if (canvas.style.display === 'none') {
-                canvas.style.display = 'block';
-                button.textContent = 'Hide Waveform';
-                button.classList.add('active');
-            } else {
-                canvas.style.display = 'none';
-                button.textContent = 'Show Waveform';
-                button.classList.remove('active');
-            }
-        }
-        
-        async function testSpeaker(deviceId) {
-            const button = event.target;
-            
-            if (isPlaying) {
-                stopTestSound();
-                button.textContent = 'Test Sound';
-                return;
-            }
-            
-            try {
-                await playTestSound(deviceId, button);
-                button.textContent = 'Stop Sound';
-                button.classList.add('stop-btn');
-                isPlaying = true;
-            } catch (error) {
-                showError('Failed to play test sound: ' + error.message);
-            }
-        }
-        
-        async function playTestSound(deviceId, button) {
-            // Create a test tone using Web Audio API and convert to blob
-            if (!audioContext) {
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            }
-            
-            // Create a buffer with a test tone
-            const duration = 2; // 2 seconds
-            const sampleRate = audioContext.sampleRate;
-            const buffer = audioContext.createBuffer(1, duration * sampleRate, sampleRate);
-            const data = buffer.getChannelData(0);
-            
-            // Generate a 440Hz sine wave
-            for (let i = 0; i < data.length; i++) {
-                data[i] = Math.sin(2 * Math.PI * 440 * i / sampleRate) * 0.1;
-            }
-            
-            // Convert buffer to WAV blob
-            const wavBlob = bufferToWav(buffer);
-            const audioUrl = URL.createObjectURL(wavBlob);
-            
-            // Create audio element and set the sink
-            const audio = new Audio(audioUrl);
-            
-            try {
-                // Set the output device
-                if (deviceId) {
-                    if (audio.setSinkId) {
-                        await audio.setSinkId(deviceId);
-                    } else {
-                        console.warn('setSinkId not supported - audio will play to default device');
-                        showError('Browser does not support selecting specific audio output devices. Audio will play to system default.');
-                    }
-                }
-                
-                // Store reference for cleanup
-                window.testAudio = audio;
-                
-                // Play the audio
-                await audio.play();
-                
-                // Clean up when finished
-                audio.addEventListener('ended', () => {
-                    URL.revokeObjectURL(audioUrl);
-                    if (isPlaying) {
-                        stopTestSound();
-                        button.textContent = 'Test Sound';
-                        button.classList.remove('stop-btn');
-                    }
-                });
-                
-            } catch (error) {
-                URL.revokeObjectURL(audioUrl);
-                if (error.name === 'NotAllowedError') {
-                    throw new Error('Permission denied to use selected audio device');
-                } else if (error.name === 'NotFoundError') {
-                    throw new Error('Selected audio device not found');
-                } else {
-                    throw error;
-                }
-            }
-        }
-        
-        function stopTestSound() {
-            if (window.testAudio) {
-                window.testAudio.pause();
-                window.testAudio.currentTime = 0;
-                window.testAudio = null;
-            }
-            if (oscillator) {
-                oscillator.stop();
-                oscillator = null;
-            }
-            isPlaying = false;
-        }
-        
-        // Helper function to convert AudioBuffer to WAV blob
-        function bufferToWav(buffer) {
-            const length = buffer.length;
-            const arrayBuffer = new ArrayBuffer(44 + length * 2);
-            const view = new DataView(arrayBuffer);
-            const channels = buffer.numberOfChannels;
-            const sampleRate = buffer.sampleRate;
-            
-            // WAV header
-            const writeString = (offset, string) => {
-                for (let i = 0; i < string.length; i++) {
-                    view.setUint8(offset + i, string.charCodeAt(i));
-                }
-            };
-            
-            writeString(0, 'RIFF');
-            view.setUint32(4, 36 + length * 2, true);
-            writeString(8, 'WAVE');
-            writeString(12, 'fmt ');
-            view.setUint32(16, 16, true);
-            view.setUint16(20, 1, true);
-            view.setUint16(22, channels, true);
-            view.setUint32(24, sampleRate, true);
-            view.setUint32(28, sampleRate * 2, true);
-            view.setUint16(32, 2, true);
-            view.setUint16(34, 16, true);
-            writeString(36, 'data');
-            view.setUint32(40, length * 2, true);
-            
-            // Convert audio data
-            const data = buffer.getChannelData(0);
-            let offset = 44;
-            for (let i = 0; i < length; i++) {
-                const sample = Math.max(-1, Math.min(1, data[i]));
-                view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
-                offset += 2;
-            }
-            
-            return new Blob([arrayBuffer], { type: 'audio/wav' });
-        }
-        
-        function showError(message) {
-            const errorDiv = document.getElementById('error-message');
-            errorDiv.textContent = message;
-            errorDiv.style.display = 'block';
-        }
-        
-        // Load devices when page loads
-        document.addEventListener('DOMContentLoaded', loadDevices);
-        
-        // Listen for device changes
-        navigator.mediaDevices.addEventListener('devicechange', loadDevices);
-        
-        // Clean up on page unload
-        window.addEventListener('beforeunload', () => {
-            // Stop all recordings
-            deviceStates.forEach((state, deviceId) => {
-                if (state.isRecording) {
-                    stopRecording(deviceId);
-                }
-            });
-            if (isPlaying) {
-                stopTestSound();
-            }
-            if (window.testAudio) {
-                window.testAudio.pause();
-                window.testAudio = null;
-            }
-        });
-    </script>
+        <li class="app-item">
+            <h2>Audio Device Test</h2>
+            <p>Test your microphone and speaker devices</p>
+            <a href="inputOutputDevicesTest.html" class="app-link">Open</a>
+        </li>
+    </ul>
 </body>
-</html> 
+</html>

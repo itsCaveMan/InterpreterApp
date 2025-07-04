@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Korean Correction</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f8f9fa;
+            padding: 20px;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 30px;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #2c3e50;
+            font-weight: 300;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #555;
+        }
+        
+        input[type="text"], input[type="password"], textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="text"]:focus, input[type="password"]:focus, textarea:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+        
+        textarea {
+            resize: vertical;
+            min-height: 120px;
+        }
+        
+        .api-key-group {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            justify-content: center;
+            margin: 30px 0;
+        }
+        
+        .mic-button {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 15px 20px;
+            border-radius: 50px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 150px;
+            justify-content: center;
+        }
+        
+        .mic-button:hover {
+            background: #c82333;
+            transform: scale(1.05);
+        }
+        
+        .mic-button.recording {
+            background: #28a745;
+            animation: pulse 2s infinite;
+        }
+        
+        .mic-button.recording:hover {
+            background: #218838;
+        }
+        
+        .mic-button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        
+        .status {
+            text-align: center;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+            font-weight: 500;
+        }
+        
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .status.connecting {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .conversation {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .message {
+            margin-bottom: 15px;
+            padding: 10px;
+            border-radius: 6px;
+            line-height: 1.5;
+        }
+        
+        .message.user {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+        }
+        
+        .message.assistant {
+            background: #e8f5e8;
+            border-left: 4px solid #4caf50;
+        }
+        
+        .message.error {
+            background: #ffebee;
+            border-left: 4px solid #f44336;
+        }
+        
+        .message-label {
+            font-weight: bold;
+            margin-bottom: 5px;
+            font-size: 12px;
+            text-transform: uppercase;
+            opacity: 0.8;
+        }
+        
+        .audio-controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .audio-button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        
+        .audio-button:hover {
+            background: #0056b3;
+        }
+        
+        .audio-button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 12px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        
+        .mic-icon {
+            font-size: 18px;
+        }
+        
+        .volume-indicator {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: #ddd;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.1s;
+        }
+        
+        .volume-indicator.active {
+            background: #28a745;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Real-time Korean Correction</h1>
+        
+        <div class="api-key-group">
+            <div class="form-group">
+                <label for="apiKey">OpenAI API Key:</label>
+                <input type="password" id="apiKey" placeholder="sk-..." required>
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label for="systemInstructions">System Instructions:</label>
+            <textarea id="systemInstructions" placeholder="Enter system instructions for Korean correction..." rows="6"></textarea>
+        </div>
+        
+        <div class="controls">
+            <button id="micButton" class="mic-button" type="button">
+                <span class="mic-icon">🎤</span>
+                <span id="micButtonText">Start Recording</span>
+            </button>
+            <div id="volumeIndicator" class="volume-indicator">🔊</div>
+        </div>
+        
+        <div id="status" class="status disconnected">
+            Disconnected - Click "Start Recording" to begin
+        </div>
+        
+        <div id="error" class="error" style="display: none;"></div>
+        
+        <div id="conversation" class="conversation" style="display: none;">
+            <div id="conversationContent"></div>
+        </div>
+    </div>
+
+    <script>
+        class RealtimeKoreanCorrection {
+            constructor() {
+                this.ws = null;
+                this.audioContext = null;
+                this.mediaStream = null;
+                this.audioWorklet = null;
+                this.isRecording = false;
+                this.isConnected = false;
+                this.audioQueue = [];
+                
+                this.initElements();
+                this.loadSettings();
+                this.setupEventListeners();
+            }
+            
+            initElements() {
+                this.micButton = document.getElementById('micButton');
+                this.micButtonText = document.getElementById('micButtonText');
+                this.statusDiv = document.getElementById('status');
+                this.errorDiv = document.getElementById('error');
+                this.conversationDiv = document.getElementById('conversation');
+                this.conversationContent = document.getElementById('conversationContent');
+                this.apiKeyInput = document.getElementById('apiKey');
+                this.systemInstructionsInput = document.getElementById('systemInstructions');
+                this.volumeIndicator = document.getElementById('volumeIndicator');
+            }
+            
+            loadSettings() {
+                const savedApiKey = localStorage.getItem('openai_api_key');
+                const savedSystemInstructions = localStorage.getItem('system_instructions');
+                
+                if (savedApiKey) {
+                    this.apiKeyInput.value = savedApiKey;
+                }
+                
+                if (savedSystemInstructions) {
+                    this.systemInstructionsInput.value = savedSystemInstructions;
+                } else {
+                    // Default system instructions for Korean correction
+                    this.systemInstructionsInput.value = `You are a Korean language correction assistant. When you receive Korean audio:
+
+1. Provide real-time pronunciation feedback
+2. Correct grammar and vocabulary mistakes
+3. Suggest more natural expressions
+4. Respond in both Korean and English
+5. Be encouraging and helpful
+
+Keep responses concise and focused on the most important corrections.`;
+                }
+            }
+            
+            setupEventListeners() {
+                this.micButton.addEventListener('click', () => this.toggleRecording());
+                
+                this.apiKeyInput.addEventListener('input', (e) => {
+                    localStorage.setItem('openai_api_key', e.target.value);
+                });
+                
+                this.systemInstructionsInput.addEventListener('input', (e) => {
+                    localStorage.setItem('system_instructions', e.target.value);
+                });
+            }
+            
+            async toggleRecording() {
+                if (!this.isRecording) {
+                    await this.startRecording();
+                } else {
+                    await this.stopRecording();
+                }
+            }
+            
+            async startRecording() {
+                const apiKey = this.apiKeyInput.value.trim();
+                if (!apiKey) {
+                    this.showError('Please enter your OpenAI API key');
+                    return;
+                }
+                
+                try {
+                    this.updateStatus('connecting', 'Connecting to OpenAI...');
+                    this.micButton.disabled = true;
+                    
+                    // Initialize audio context
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    
+                    // Get microphone access
+                    this.mediaStream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            sampleRate: 24000,
+                            channelCount: 1
+                        }
+                    });
+                    
+                    // Connect to OpenAI Realtime API
+                    await this.connectToOpenAI(apiKey);
+                    
+                    // Start audio processing
+                    await this.startAudioProcessing();
+                    
+                    this.isRecording = true;
+                    this.micButton.classList.add('recording');
+                    this.micButtonText.textContent = 'Stop Recording';
+                    this.micButton.disabled = false;
+                    this.updateStatus('connected', 'Connected - Speaking...');
+                    this.conversationDiv.style.display = 'block';
+                    
+                } catch (error) {
+                    this.showError('Error starting recording: ' + error.message);
+                    this.micButton.disabled = false;
+                    this.updateStatus('disconnected', 'Connection failed');
+                }
+            }
+            
+            async stopRecording() {
+                this.isRecording = false;
+                this.micButton.classList.remove('recording');
+                this.micButtonText.textContent = 'Start Recording';
+                this.updateStatus('disconnected', 'Disconnected');
+                
+                // Stop audio processing
+                if (this.mediaStream) {
+                    this.mediaStream.getTracks().forEach(track => track.stop());
+                    this.mediaStream = null;
+                }
+                
+                if (this.audioContext) {
+                    await this.audioContext.close();
+                    this.audioContext = null;
+                }
+                
+                // Close WebSocket connection
+                if (this.ws) {
+                    this.ws.close();
+                    this.ws = null;
+                }
+                
+                this.isConnected = false;
+            }
+            
+            async connectToOpenAI(apiKey) {
+                return new Promise((resolve, reject) => {
+                    const wsUrl = 'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01';
+                    
+                    this.ws = new WebSocket(wsUrl, [], {
+                        headers: {
+                            'Authorization': `Bearer ${apiKey}`,
+                            'OpenAI-Beta': 'realtime=v1'
+                        }
+                    });
+                    
+                    this.ws.onopen = () => {
+                        this.isConnected = true;
+                        
+                        // Send session configuration
+                        this.ws.send(JSON.stringify({
+                            type: 'session.update',
+                            session: {
+                                modalities: ['text', 'audio'],
+                                instructions: this.systemInstructionsInput.value,
+                                voice: 'alloy',
+                                input_audio_format: 'pcm16',
+                                output_audio_format: 'pcm16',
+                                input_audio_transcription: {
+                                    model: 'whisper-1'
+                                }
+                            }
+                        }));
+                        
+                        resolve();
+                    };
+                    
+                    this.ws.onmessage = (event) => {
+                        this.handleWebSocketMessage(JSON.parse(event.data));
+                    };
+                    
+                    this.ws.onerror = (error) => {
+                        reject(new Error('WebSocket connection failed'));
+                    };
+                    
+                    this.ws.onclose = () => {
+                        this.isConnected = false;
+                        if (this.isRecording) {
+                            this.stopRecording();
+                        }
+                    };
+                });
+            }
+            
+            handleWebSocketMessage(message) {
+                switch (message.type) {
+                    case 'session.created':
+                        console.log('Session created:', message);
+                        break;
+                        
+                    case 'conversation.item.input_audio_transcription.completed':
+                        const userText = message.transcript;
+                        this.addMessage('user', userText);
+                        break;
+                        
+                    case 'response.audio.delta':
+                        // Handle audio response chunks
+                        if (message.delta) {
+                            this.playAudioChunk(message.delta);
+                        }
+                        break;
+                        
+                    case 'response.text.delta':
+                        // Handle text response chunks
+                        if (message.delta) {
+                            this.appendToLastAssistantMessage(message.delta);
+                        }
+                        break;
+                        
+                    case 'response.done':
+                        console.log('Response completed');
+                        break;
+                        
+                    case 'error':
+                        this.showError('OpenAI Error: ' + message.error.message);
+                        break;
+                        
+                    default:
+                        console.log('Received message:', message);
+                }
+            }
+            
+            async startAudioProcessing() {
+                const source = this.audioContext.createMediaStreamSource(this.mediaStream);
+                
+                // Create audio worklet for processing
+                await this.audioContext.audioWorklet.addModule(this.createAudioWorkletProcessor());
+                
+                this.audioWorklet = new AudioWorkletNode(this.audioContext, 'audio-processor');
+                
+                this.audioWorklet.port.onmessage = (event) => {
+                    if (event.data.type === 'audio-data') {
+                        this.sendAudioToOpenAI(event.data.audio);
+                    }
+                };
+                
+                source.connect(this.audioWorklet);
+            }
+            
+            createAudioWorkletProcessor() {
+                const processorCode = `
+                    class AudioProcessor extends AudioWorkletProcessor {
+                        constructor() {
+                            super();
+                            this.bufferSize = 4096;
+                            this.buffer = new Float32Array(this.bufferSize);
+                            this.bufferIndex = 0;
+                        }
+                        
+                        process(inputs, outputs, parameters) {
+                            const input = inputs[0];
+                            if (input.length > 0) {
+                                const inputChannel = input[0];
+                                
+                                for (let i = 0; i < inputChannel.length; i++) {
+                                    this.buffer[this.bufferIndex] = inputChannel[i];
+                                    this.bufferIndex++;
+                                    
+                                    if (this.bufferIndex >= this.bufferSize) {
+                                        // Convert to 16-bit PCM
+                                        const pcmData = this.floatTo16BitPCM(this.buffer);
+                                        this.port.postMessage({
+                                            type: 'audio-data',
+                                            audio: pcmData
+                                        });
+                                        this.bufferIndex = 0;
+                                    }
+                                }
+                            }
+                            return true;
+                        }
+                        
+                        floatTo16BitPCM(float32Array) {
+                            const int16Array = new Int16Array(float32Array.length);
+                            for (let i = 0; i < float32Array.length; i++) {
+                                const sample = Math.max(-1, Math.min(1, float32Array[i]));
+                                int16Array[i] = sample * 32767;
+                            }
+                            return int16Array;
+                        }
+                    }
+                    
+                    registerProcessor('audio-processor', AudioProcessor);
+                `;
+                
+                const blob = new Blob([processorCode], { type: 'application/javascript' });
+                return URL.createObjectURL(blob);
+            }
+            
+            sendAudioToOpenAI(audioData) {
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    const base64Audio = btoa(String.fromCharCode.apply(null, new Uint8Array(audioData.buffer)));
+                    
+                    this.ws.send(JSON.stringify({
+                        type: 'input_audio_buffer.append',
+                        audio: base64Audio
+                    }));
+                }
+            }
+            
+            playAudioChunk(base64Audio) {
+                try {
+                    const audioData = atob(base64Audio);
+                    const audioBuffer = new ArrayBuffer(audioData.length);
+                    const audioView = new Uint8Array(audioBuffer);
+                    
+                    for (let i = 0; i < audioData.length; i++) {
+                        audioView[i] = audioData.charCodeAt(i);
+                    }
+                    
+                    // Convert PCM to audio buffer and play
+                    this.audioContext.decodeAudioData(audioBuffer).then(buffer => {
+                        const source = this.audioContext.createBufferSource();
+                        source.buffer = buffer;
+                        source.connect(this.audioContext.destination);
+                        source.start();
+                    }).catch(error => {
+                        console.error('Error playing audio:', error);
+                    });
+                } catch (error) {
+                    console.error('Error processing audio chunk:', error);
+                }
+            }
+            
+            addMessage(type, content) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${type}`;
+                
+                const labelDiv = document.createElement('div');
+                labelDiv.className = 'message-label';
+                labelDiv.textContent = type === 'user' ? 'You' : 'Assistant';
+                
+                const contentDiv = document.createElement('div');
+                contentDiv.textContent = content;
+                
+                messageDiv.appendChild(labelDiv);
+                messageDiv.appendChild(contentDiv);
+                
+                this.conversationContent.appendChild(messageDiv);
+                this.conversationDiv.scrollTop = this.conversationDiv.scrollHeight;
+            }
+            
+            appendToLastAssistantMessage(text) {
+                const messages = this.conversationContent.querySelectorAll('.message.assistant');
+                let lastMessage = messages[messages.length - 1];
+                
+                if (!lastMessage) {
+                    this.addMessage('assistant', text);
+                    return;
+                }
+                
+                const contentDiv = lastMessage.querySelector('div:last-child');
+                contentDiv.textContent += text;
+                this.conversationDiv.scrollTop = this.conversationDiv.scrollHeight;
+            }
+            
+            updateStatus(type, message) {
+                this.statusDiv.className = `status ${type}`;
+                this.statusDiv.textContent = message;
+            }
+            
+            showError(message) {
+                this.errorDiv.textContent = message;
+                this.errorDiv.style.display = 'block';
+                setTimeout(() => {
+                    this.errorDiv.style.display = 'none';
+                }, 5000);
+            }
+        }
+        
+        // Initialize the app when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new RealtimeKoreanCorrection();
+        });
+    </script>
+</body>
+</html>

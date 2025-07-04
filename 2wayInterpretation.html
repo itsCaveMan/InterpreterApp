@@ -1,0 +1,1733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenAI Realtime Voice Assistant - Detailed Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f5f5f5;
+            margin: 10px;
+            padding: 0;
+        }
+
+        .container {
+            background: white;
+            border: 1px solid #ddd;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .main-panel {
+            grid-column: 1 / -1;
+        }
+
+        .info-panel {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 15px;
+            border-radius: 5px;
+        }
+
+        .info-panel h3 {
+            margin-top: 0;
+            color: #495057;
+            font-size: 16px;
+            border-bottom: 1px solid #dee2e6;
+            padding-bottom: 8px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .stat-item {
+            background: white;
+            padding: 10px;
+            border: 1px solid #dee2e6;
+            border-radius: 3px;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: #6c757d;
+            text-transform: uppercase;
+        }
+
+        .stat-value {
+            font-size: 14px;
+            font-weight: bold;
+            color: #212529;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+
+        .status-indicator {
+            padding: 10px;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            font-weight: bold;
+        }
+
+        .status-disconnected {
+            background: #ffe6e6;
+            color: #d00;
+        }
+
+        .status-connecting {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status-connected {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-listening {
+            background: #cce5ff;
+            color: #004085;
+        }
+
+        .controls {
+            margin-bottom: 20px;
+        }
+
+        .api-key-section, .instructions-section {
+            margin-bottom: 15px;
+        }
+
+        .api-key-section label, .instructions-section label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        .api-key-section input, .instructions-section textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            font-size: 14px;
+            font-family: inherit;
+        }
+
+        .instructions-section textarea {
+            height: 80px;
+            resize: vertical;
+        }
+
+        .button-group {
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            margin-right: 10px;
+            border: 1px solid #ddd;
+            background: #f8f9fa;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .btn-primary {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+            border-color: #dc3545;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+            border-color: #6c757d;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .audio-visualizer {
+            height: 80px;
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .wave-bars {
+            display: flex;
+            align-items: end;
+            gap: 2px;
+            height: 50px;
+        }
+
+        .wave-bar {
+            width: 3px;
+            background: #007bff;
+            height: 5px;
+        }
+
+        .conversation {
+            max-height: 300px;
+            overflow-y: auto;
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-top: 15px;
+        }
+
+        .message {
+            margin-bottom: 10px;
+            padding: 8px 10px;
+            border: 1px solid #ddd;
+            background: white;
+        }
+
+        .message-user {
+            background: #e3f2fd;
+            text-align: right;
+        }
+
+        .message-assistant {
+            background: #f1f8e9;
+        }
+
+        .message-timestamp {
+            font-size: 11px;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .error-message {
+            background: #ffe6e6;
+            color: #d00;
+            border: 1px solid #ffcdd2;
+            padding: 10px;
+            margin: 15px 0;
+            display: none;
+        }
+
+        .volume-meter {
+            width: 100%;
+            height: 15px;
+            background: #f0f0f0;
+            border: 1px solid #ddd;
+            margin: 10px 0;
+        }
+
+        .volume-level {
+            height: 100%;
+            background: #28a745;
+            width: 0%;
+        }
+
+        .debug-log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 2px 0;
+        }
+
+        .log-timestamp {
+            color: #6c757d;
+        }
+
+        .log-level-info {
+            color: #007bff;
+        }
+
+        .log-level-warn {
+            color: #ffc107;
+        }
+
+        .log-level-error {
+            color: #dc3545;
+        }
+
+        .audio-devices {
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .device-item {
+            padding: 8px;
+            border: 1px solid #dee2e6;
+            margin-bottom: 5px;
+            border-radius: 3px;
+            background: white;
+        }
+
+        .device-name {
+            font-weight: bold;
+            font-size: 12px;
+        }
+
+        .device-id {
+            font-size: 10px;
+            color: #6c757d;
+            word-break: break-all;
+        }
+
+        .metrics-chart {
+            height: 100px;
+            background: white;
+            border: 1px solid #dee2e6;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .chart-line {
+            position: absolute;
+            bottom: 0;
+            width: 2px;
+            background: #007bff;
+            transition: height 0.1s ease;
+        }
+
+        .connection-details table {
+            width: 100%;
+            font-size: 12px;
+            border-collapse: collapse;
+        }
+
+        .connection-details td {
+            padding: 5px;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .connection-details td:first-child {
+            font-weight: bold;
+            width: 40%;
+        }
+
+        .performance-indicators {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+        }
+
+        .indicator {
+            text-align: center;
+            padding: 10px;
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+        }
+
+        .indicator-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: #007bff;
+        }
+
+        .indicator-label {
+            font-size: 11px;
+            color: #6c757d;
+            text-transform: uppercase;
+        }
+
+        .api-usage {
+            background: white;
+            padding: 10px;
+            border: 1px solid #dee2e6;
+            border-radius: 3px;
+        }
+
+        .usage-bar {
+            height: 20px;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            margin: 5px 0;
+            position: relative;
+        }
+
+        .usage-fill {
+            height: 100%;
+            background: #007bff;
+            width: 0%;
+        }
+
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #dee2e6;
+            margin-bottom: 15px;
+        }
+
+        .tab {
+            padding: 10px 15px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            border-bottom: none;
+            background: #f8f9fa;
+        }
+
+        .tab.active {
+            background: white;
+            border-color: #dee2e6;
+            border-bottom-color: white;
+            margin-bottom: -1px;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎙️ AI Voice Assistant - Detailed Dashboard</h1>
+        
+        <div class="main-panel">
+            <div id="status" class="status-indicator status-disconnected">
+                🔴 Disconnected
+            </div>
+            
+            <div class="info-panel" style="margin-bottom: 15px;">
+                <h3>🔄 Dual Session Status</h3>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-label">Primary Session</div>
+                        <div class="stat-value" id="primarySessionStatus">Disconnected</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Secondary Session</div>
+                        <div class="stat-value" id="secondarySessionStatus">Disconnected</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Active Session</div>
+                        <div class="stat-value" id="activeSessionDisplay">None</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Session Switches</div>
+                        <div class="stat-value" id="sessionSwitches">0</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Audio Status</div>
+                        <div class="stat-value" id="audioStatus">Single</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="controls">
+                <div class="api-key-section">
+                    <label for="apiKey">OpenAI API Key:</label>
+                    <input type="password" id="apiKey" placeholder="Enter your OpenAI API key" />
+                </div>
+
+                <div class="instructions-section">
+                    <label for="systemInstructions">System Instructions:</label>
+                    <textarea id="systemInstructions" placeholder="Enter custom instructions for the AI assistant (e.g., 'You are a helpful coding assistant. Always explain your code.')"></textarea>
+                </div>
+
+                <div class="button-group">
+                    <button id="connectBtn" class="btn btn-primary">
+                        🔗 Connect
+                    </button>
+                    <button id="disconnectBtn" class="btn btn-danger" disabled>
+                        ❌ Disconnect
+                    </button>
+                    <button id="clearLogsBtn" class="btn btn-secondary">
+                        🗑️ Clear Logs
+                    </button>
+                    <button id="exportLogsBtn" class="btn btn-secondary">
+                        📋 Export Debug
+                    </button>
+                </div>
+            </div>
+
+            <div class="audio-visualizer">
+                <div class="wave-bars" id="waveBars">
+                    <!-- Wave bars will be generated by JavaScript -->
+                </div>
+            </div>
+
+            <div class="volume-meter">
+                <div class="volume-level" id="volumeLevel"></div>
+            </div>
+
+            <div class="error-message" id="errorMessage"></div>
+
+            <div class="conversation" id="conversation">
+                <div class="message message-assistant">
+                    <div>Welcome! Enter your OpenAI API key and click Connect to start talking with the AI assistant.</div>
+                    <div class="message-timestamp" id="timestamp"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="dashboard-grid">
+            <!-- Connection Status Panel -->
+            <div class="info-panel">
+                <h3>🔗 Connection Status</h3>
+                <div class="connection-details">
+                    <table>
+                        <tr><td>WebRTC State:</td><td id="webrtcState">-</td></tr>
+                        <tr><td>Data Channel:</td><td id="dataChannelState">-</td></tr>
+                        <tr><td>ICE Connection:</td><td id="iceConnectionState">-</td></tr>
+                        <tr><td>ICE Gathering:</td><td id="iceGatheringState">-</td></tr>
+                        <tr><td>Signaling State:</td><td id="signalingState">-</td></tr>
+                        <tr><td>Connection Time:</td><td id="connectionTime">-</td></tr>
+                        <tr><td>Session Duration:</td><td id="sessionDuration">-</td></tr>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Audio Devices Panel -->
+            <div class="info-panel">
+                <h3>🎤 Audio Devices</h3>
+                <div class="audio-devices" id="audioDevices">
+                    <div>Scanning for devices...</div>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-label">Sample Rate</div>
+                        <div class="stat-value" id="sampleRate">-</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Buffer Size</div>
+                        <div class="stat-value" id="bufferSize">-</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Performance Metrics Panel -->
+            <div class="info-panel">
+                <h3>📊 Performance Metrics</h3>
+                <div class="performance-indicators">
+                    <div class="indicator">
+                        <div class="indicator-value" id="latency">0ms</div>
+                        <div class="indicator-label">Latency</div>
+                    </div>
+                    <div class="indicator">
+                        <div class="indicator-value" id="audioDrops">0</div>
+                        <div class="indicator-label">Audio Drops</div>
+                    </div>
+                    <div class="indicator">
+                        <div class="indicator-value" id="messagesSent">0</div>
+                        <div class="indicator-label">Messages Sent</div>
+                    </div>
+                    <div class="indicator">
+                        <div class="indicator-value" id="messagesReceived">0</div>
+                        <div class="indicator-label">Messages Received</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- API Usage Panel -->
+            <div class="info-panel">
+                <h3>💰 API Usage (Session)</h3>
+                <div class="api-usage">
+                    <div>Audio Input: <span id="audioInputTokens">0</span> tokens</div>
+                    <div class="usage-bar">
+                        <div class="usage-fill" id="audioInputBar"></div>
+                    </div>
+                    <div>Audio Output: <span id="audioOutputTokens">0</span> tokens</div>
+                    <div class="usage-bar">
+                        <div class="usage-fill" id="audioOutputBar"></div>
+                    </div>
+                    <div>Text Tokens: <span id="textTokens">0</span> tokens</div>
+                    <div class="usage-bar">
+                        <div class="usage-fill" id="textTokensBar"></div>
+                    </div>
+                    <div><strong>Estimated Cost: $<span id="estimatedCost">0.00</span></strong></div>
+                </div>
+            </div>
+
+            <!-- Session Info Panel -->
+            <div class="info-panel">
+                <h3>ℹ️ Session Information</h3>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-label">Session ID</div>
+                        <div class="stat-value" id="sessionId">-</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Model</div>
+                        <div class="stat-value" id="modelVersion">gpt-4o-realtime</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Voice</div>
+                        <div class="stat-value" id="voiceModel">alloy</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Turn Detection</div>
+                        <div class="stat-value" id="turnDetection">server_vad</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Audio Analysis Panel -->
+            <div class="info-panel">
+                <h3>🔊 Audio Analysis</h3>
+                <div class="metrics-chart" id="audioChart"></div>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-label">Current Volume</div>
+                        <div class="stat-value" id="currentVolume">0%</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Peak Volume</div>
+                        <div class="stat-value" id="peakVolume">0%</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Avg Volume</div>
+                        <div class="stat-value" id="avgVolume">0%</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Noise Floor</div>
+                        <div class="stat-value" id="noiseFloor">0%</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Debug Logs Panel -->
+        <div class="info-panel">
+            <h3>🐛 Debug Logs</h3>
+            <div class="tabs">
+                <div class="tab active" data-tab="general">General</div>
+                <div class="tab" data-tab="webrtc">WebRTC</div>
+                <div class="tab" data-tab="audio">Audio</div>
+                <div class="tab" data-tab="api">API Messages</div>
+            </div>
+            <div class="tab-content active" id="general-log">
+                <div class="debug-log" id="debugLog"></div>
+            </div>
+            <div class="tab-content" id="webrtc-log">
+                <div class="debug-log" id="webrtcLog"></div>
+            </div>
+            <div class="tab-content" id="audio-log">
+                <div class="debug-log" id="audioLog"></div>
+            </div>
+            <div class="tab-content" id="api-log">
+                <div class="debug-log" id="apiLog"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class OpenAIRealtimeClient {
+            constructor() {
+                // Dual session support
+                this.sessions = {
+                    primary: {
+                        pc: null,
+                        dc: null,
+                        isConnected: false,
+                        isActive: true,
+                        id: null
+                    },
+                    secondary: {
+                        pc: null,
+                        dc: null,
+                        isConnected: false,
+                        isActive: false,
+                        id: null
+                    }
+                };
+                
+                this.activeSession = 'primary';
+                this.audioContext = null;
+                this.mediaStream = null;
+                this.microphone = null;
+                this.processor = null;
+                this.isConnected = false;
+                this.isListening = false;
+                this.apiKey = '';
+                
+                // Voice Activity Detection
+                this.vad = {
+                    isUserSpeaking: false,
+                    speechStartTime: null,
+                    silenceThreshold: 0.01, // Threshold for detecting speech
+                    speechDurationThreshold: 500, // ms - how long user must speak to trigger session switch
+                    silenceDurationThreshold: 1000, // ms - how long silence before allowing session switch back
+                    lastSpeechTime: null,
+                    consecutiveSpeechFrames: 0,
+                    consecutiveSilenceFrames: 0,
+                    frameSize: 4096 / 60 // ~69ms frames at 44.1kHz
+                };
+                
+                // Enhanced tracking properties
+                this.metrics = {
+                    connectionTime: null,
+                    sessionStartTime: null,
+                    messagesSent: 0,
+                    messagesReceived: 0,
+                    audioDrops: 0,
+                    latency: 0,
+                    audioInputTokens: 0,
+                    audioOutputTokens: 0,
+                    textTokens: 0,
+                    estimatedCost: 0,
+                    currentVolume: 0,
+                    peakVolume: 0,
+                    avgVolume: 0,
+                    noiseFloor: 5,
+                    volumeHistory: [],
+                    audioLevels: [],
+                    sessionSwitches: 0,
+                    currentSessionType: 'primary'
+                };
+                
+                this.logs = {
+                    general: [],
+                    webrtc: [],
+                    audio: [],
+                    api: []
+                };
+                
+                this.initializeElements();
+                this.initializeAudioVisualizer();
+                this.setupEventListeners();
+                this.setupDebugTabs();
+                this.startMetricsUpdate();
+                this.scanAudioDevices();
+            }
+
+            initializeElements() {
+                this.statusElement = document.getElementById('status');
+                this.apiKeyInput = document.getElementById('apiKey');
+                this.systemInstructionsInput = document.getElementById('systemInstructions');
+                this.connectBtn = document.getElementById('connectBtn');
+                this.disconnectBtn = document.getElementById('disconnectBtn');
+                this.conversation = document.getElementById('conversation');
+                this.errorMessage = document.getElementById('errorMessage');
+                this.volumeLevel = document.getElementById('volumeLevel');
+                this.waveBars = document.getElementById('waveBars');
+                
+                // Enhanced UI elements
+                this.webrtcStateElement = document.getElementById('webrtcState');
+                this.dataChannelStateElement = document.getElementById('dataChannelState');
+                this.iceConnectionStateElement = document.getElementById('iceConnectionState');
+                this.iceGatheringStateElement = document.getElementById('iceGatheringState');
+                this.signalingStateElement = document.getElementById('signalingState');
+                this.connectionTimeElement = document.getElementById('connectionTime');
+                this.sessionDurationElement = document.getElementById('sessionDuration');
+                this.audioDevicesElement = document.getElementById('audioDevices');
+                this.sampleRateElement = document.getElementById('sampleRate');
+                this.bufferSizeElement = document.getElementById('bufferSize');
+                this.latencyElement = document.getElementById('latency');
+                this.audioDropsElement = document.getElementById('audioDrops');
+                this.messagesSentElement = document.getElementById('messagesSent');
+                this.messagesReceivedElement = document.getElementById('messagesReceived');
+                this.audioInputTokensElement = document.getElementById('audioInputTokens');
+                this.audioOutputTokensElement = document.getElementById('audioOutputTokens');
+                this.textTokensElement = document.getElementById('textTokens');
+                this.estimatedCostElement = document.getElementById('estimatedCost');
+                this.sessionIdElement = document.getElementById('sessionId');
+                this.currentVolumeElement = document.getElementById('currentVolume');
+                this.peakVolumeElement = document.getElementById('peakVolume');
+                this.avgVolumeElement = document.getElementById('avgVolume');
+                this.noiseFloorElement = document.getElementById('noiseFloor');
+                this.audioChartElement = document.getElementById('audioChart');
+                
+                // Debug log elements
+                this.debugLogElement = document.getElementById('debugLog');
+                this.webrtcLogElement = document.getElementById('webrtcLog');
+                this.audioLogElement = document.getElementById('audioLog');
+                this.apiLogElement = document.getElementById('apiLog');
+                
+                // Dual session elements
+                this.primarySessionStatusElement = document.getElementById('primarySessionStatus');
+                this.secondarySessionStatusElement = document.getElementById('secondarySessionStatus');
+                this.activeSessionDisplayElement = document.getElementById('activeSessionDisplay');
+                this.sessionSwitchesElement = document.getElementById('sessionSwitches');
+                this.audioStatusElement = document.getElementById('audioStatus');
+                
+                // Load saved values from localStorage
+                this.loadApiKey();
+                this.loadSystemInstructions();
+            }
+
+            initializeAudioVisualizer() {
+                // Create wave bars for visualization
+                for (let i = 0; i < 20; i++) {
+                    const bar = document.createElement('div');
+                    bar.className = 'wave-bar';
+                    this.waveBars.appendChild(bar);
+                }
+                this.bars = document.querySelectorAll('.wave-bar');
+            }
+
+            setupEventListeners() {
+                this.connectBtn.addEventListener('click', () => this.connect());
+                this.disconnectBtn.addEventListener('click', () => this.disconnect());
+                
+                // New button listeners
+                document.getElementById('clearLogsBtn').addEventListener('click', () => this.clearLogs());
+                document.getElementById('exportLogsBtn').addEventListener('click', () => this.exportDebugInfo());
+                
+                // Save API key to localStorage when it changes
+                this.apiKeyInput.addEventListener('input', () => this.saveApiKey());
+                this.apiKeyInput.addEventListener('change', () => this.saveApiKey());
+                
+                // Save system instructions to localStorage when they change
+                this.systemInstructionsInput.addEventListener('input', () => this.saveSystemInstructions());
+                this.systemInstructionsInput.addEventListener('change', () => this.saveSystemInstructions());
+                
+                // Update timestamp every second
+                setInterval(() => {
+                    const timestamp = document.getElementById('timestamp');
+                    if (timestamp) {
+                        timestamp.textContent = new Date().toLocaleTimeString();
+                    }
+                }, 1000);
+            }
+
+            setupDebugTabs() {
+                const tabs = document.querySelectorAll('.tab');
+                const tabContents = document.querySelectorAll('.tab-content');
+                
+                tabs.forEach(tab => {
+                    tab.addEventListener('click', () => {
+                        // Remove active class from all tabs and contents
+                        tabs.forEach(t => t.classList.remove('active'));
+                        tabContents.forEach(tc => tc.classList.remove('active'));
+                        
+                        // Add active class to clicked tab
+                        tab.classList.add('active');
+                        
+                        // Show corresponding content
+                        const tabName = tab.getAttribute('data-tab');
+                        const content = document.getElementById(`${tabName}-log`);
+                        if (content) {
+                            content.classList.add('active');
+                        }
+                    });
+                });
+            }
+
+            startMetricsUpdate() {
+                setInterval(() => {
+                    this.updateMetrics();
+                    this.updateAudioChart();
+                    this.updateSessionDuration();
+                }, 1000);
+            }
+
+            async scanAudioDevices() {
+                try {
+                    const devices = await navigator.mediaDevices.enumerateDevices();
+                    const audioInputs = devices.filter(device => device.kind === 'audioinput');
+                    
+                    this.audioDevicesElement.innerHTML = '';
+                    audioInputs.forEach(device => {
+                        const deviceDiv = document.createElement('div');
+                        deviceDiv.className = 'device-item';
+                        deviceDiv.innerHTML = `
+                            <div class="device-name">${device.label || 'Unknown Device'}</div>
+                            <div class="device-id">${device.deviceId}</div>
+                        `;
+                        this.audioDevicesElement.appendChild(deviceDiv);
+                    });
+                    
+                    this.log('general', `Found ${audioInputs.length} audio input devices`);
+                } catch (error) {
+                    this.log('general', `Error scanning audio devices: ${error.message}`, 'error');
+                }
+            }
+
+            log(category, message, level = 'info') {
+                const timestamp = new Date().toLocaleTimeString();
+                const logEntry = {
+                    timestamp,
+                    message,
+                    level
+                };
+                
+                this.logs[category].push(logEntry);
+                
+                // Keep only last 100 entries per category
+                if (this.logs[category].length > 100) {
+                    this.logs[category] = this.logs[category].slice(-100);
+                }
+                
+                this.updateLogDisplay(category);
+            }
+
+            updateLogDisplay(category) {
+                const logElement = document.getElementById(`${category}Log`);
+                if (!logElement) return;
+                
+                const logContainer = logElement.querySelector('.debug-log') || logElement;
+                logContainer.innerHTML = '';
+                
+                this.logs[category].forEach(entry => {
+                    const logDiv = document.createElement('div');
+                    logDiv.className = 'log-entry';
+                    logDiv.innerHTML = `
+                        <span class="log-timestamp">[${entry.timestamp}]</span>
+                        <span class="log-level-${entry.level}">${entry.message}</span>
+                    `;
+                    logContainer.appendChild(logDiv);
+                });
+                
+                logContainer.scrollTop = logContainer.scrollHeight;
+            }
+
+            clearLogs() {
+                this.logs = {
+                    general: [],
+                    webrtc: [],
+                    audio: [],
+                    api: []
+                };
+                
+                Object.keys(this.logs).forEach(category => {
+                    this.updateLogDisplay(category);
+                });
+                
+                this.log('general', 'Logs cleared');
+            }
+
+            exportDebugInfo() {
+                const debugInfo = {
+                    timestamp: new Date().toISOString(),
+                    metrics: this.metrics,
+                    logs: this.logs,
+                    sessions: {
+                        primary: this.sessions.primary.pc ? {
+                            id: this.sessions.primary.id,
+                            isConnected: this.sessions.primary.isConnected,
+                            isActive: this.sessions.primary.isActive,
+                            connectionState: this.sessions.primary.pc.connectionState,
+                            iceConnectionState: this.sessions.primary.pc.iceConnectionState,
+                            iceGatheringState: this.sessions.primary.pc.iceGatheringState,
+                            signalingState: this.sessions.primary.pc.signalingState
+                        } : null,
+                        secondary: this.sessions.secondary.pc ? {
+                            id: this.sessions.secondary.id,
+                            isConnected: this.sessions.secondary.isConnected,
+                            isActive: this.sessions.secondary.isActive,
+                            connectionState: this.sessions.secondary.pc.connectionState,
+                            iceConnectionState: this.sessions.secondary.pc.iceConnectionState,
+                            iceGatheringState: this.sessions.secondary.pc.iceGatheringState,
+                            signalingState: this.sessions.secondary.pc.signalingState
+                        } : null
+                    },
+                    activeSession: this.activeSession,
+                    audioContext: this.audioContext ? {
+                        sampleRate: this.audioContext.sampleRate,
+                        state: this.audioContext.state
+                    } : null
+                };
+                
+                const blob = new Blob([JSON.stringify(debugInfo, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `voice-assistant-debug-${Date.now()}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+                
+                this.log('general', 'Debug information exported');
+            }
+
+            updateMetrics() {
+                // Update performance indicators
+                this.latencyElement.textContent = `${this.metrics.latency}ms`;
+                this.audioDropsElement.textContent = this.metrics.audioDrops;
+                this.messagesSentElement.textContent = this.metrics.messagesSent;
+                this.messagesReceivedElement.textContent = this.metrics.messagesReceived;
+                
+                // Update API usage
+                this.audioInputTokensElement.textContent = this.metrics.audioInputTokens;
+                this.audioOutputTokensElement.textContent = this.metrics.audioOutputTokens;
+                this.textTokensElement.textContent = this.metrics.textTokens;
+                this.estimatedCostElement.textContent = this.metrics.estimatedCost.toFixed(4);
+                
+                // Update audio analysis
+                this.currentVolumeElement.textContent = `${Math.round(this.metrics.currentVolume)}%`;
+                this.peakVolumeElement.textContent = `${Math.round(this.metrics.peakVolume)}%`;
+                this.avgVolumeElement.textContent = `${Math.round(this.metrics.avgVolume)}%`;
+                this.noiseFloorElement.textContent = `${Math.round(this.metrics.noiseFloor)}%`;
+                
+                // Update connection details if connected (show active session details)
+                const activeSession = this.sessions[this.activeSession];
+                if (activeSession.pc) {
+                    this.webrtcStateElement.textContent = `${this.activeSession}: ${activeSession.pc.connectionState || '-'}`;
+                    this.iceConnectionStateElement.textContent = `${this.activeSession}: ${activeSession.pc.iceConnectionState || '-'}`;
+                    this.iceGatheringStateElement.textContent = `${this.activeSession}: ${activeSession.pc.iceGatheringState || '-'}`;
+                    this.signalingStateElement.textContent = `${this.activeSession}: ${activeSession.pc.signalingState || '-'}`;
+                }
+                
+                if (activeSession.dc) {
+                    this.dataChannelStateElement.textContent = `${this.activeSession}: ${activeSession.dc.readyState || '-'}`;
+                }
+                
+                // Update audio context info
+                if (this.audioContext) {
+                    this.sampleRateElement.textContent = `${this.audioContext.sampleRate} Hz`;
+                    this.bufferSizeElement.textContent = this.processor ? '4096 samples' : '-';
+                }
+                
+                // Update connection time
+                if (this.metrics.connectionTime) {
+                    this.connectionTimeElement.textContent = this.metrics.connectionTime.toLocaleTimeString();
+                }
+            }
+
+            updateSessionDuration() {
+                if (this.metrics.sessionStartTime) {
+                    const duration = Date.now() - this.metrics.sessionStartTime;
+                    const minutes = Math.floor(duration / 60000);
+                    const seconds = Math.floor((duration % 60000) / 1000);
+                    this.sessionDurationElement.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                }
+            }
+
+            updateAudioChart() {
+                // Create or update audio level chart
+                const chartContainer = this.audioChartElement;
+                if (!chartContainer) return;
+                
+                // Add current audio level to history
+                this.metrics.audioLevels.push(this.metrics.currentVolume);
+                
+                // Keep only last 50 data points
+                if (this.metrics.audioLevels.length > 50) {
+                    this.metrics.audioLevels = this.metrics.audioLevels.slice(-50);
+                }
+                
+                // Clear existing chart
+                chartContainer.innerHTML = '';
+                
+                // Create chart lines
+                this.metrics.audioLevels.forEach((level, index) => {
+                    const line = document.createElement('div');
+                    line.className = 'chart-line';
+                    line.style.height = `${level}%`;
+                    line.style.left = `${(index / 50) * 100}%`;
+                    chartContainer.appendChild(line);
+                });
+            }
+
+            loadApiKey() {
+                const savedApiKey = localStorage.getItem('openai-api-key');
+                if (savedApiKey) {
+                    this.apiKeyInput.value = savedApiKey;
+                }
+            }
+
+            saveApiKey() {
+                const apiKey = this.apiKeyInput.value.trim();
+                if (apiKey) {
+                    localStorage.setItem('openai-api-key', apiKey);
+                } else {
+                    localStorage.removeItem('openai-api-key');
+                }
+            }
+
+            loadSystemInstructions() {
+                const savedInstructions = localStorage.getItem('openai-system-instructions');
+                if (savedInstructions) {
+                    this.systemInstructionsInput.value = savedInstructions;
+                } else {
+                    // Set default instructions if none saved
+                    this.systemInstructionsInput.value = 'You are a helpful AI assistant. Respond naturally and conversationally.';
+                }
+            }
+
+            saveSystemInstructions() {
+                const instructions = this.systemInstructionsInput.value.trim();
+                if (instructions) {
+                    localStorage.setItem('openai-system-instructions', instructions);
+                } else {
+                    localStorage.removeItem('openai-system-instructions');
+                }
+            }
+
+            updateStatus(status, className) {
+                this.statusElement.textContent = status;
+                this.statusElement.className = `status-indicator ${className}`;
+            }
+
+            showError(message) {
+                this.errorMessage.textContent = message;
+                this.errorMessage.style.display = 'block';
+                setTimeout(() => {
+                    this.errorMessage.style.display = 'none';
+                }, 5000);
+            }
+
+            addMessage(content, isUser = false) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${isUser ? 'message-user' : 'message-assistant'}`;
+                
+                const contentDiv = document.createElement('div');
+                contentDiv.textContent = content;
+                
+                const timestampDiv = document.createElement('div');
+                timestampDiv.className = 'message-timestamp';
+                timestampDiv.textContent = new Date().toLocaleTimeString();
+                
+                messageDiv.appendChild(contentDiv);
+                messageDiv.appendChild(timestampDiv);
+                
+                this.conversation.appendChild(messageDiv);
+                this.conversation.scrollTop = this.conversation.scrollHeight;
+            }
+
+            async connect() {
+                this.apiKey = this.apiKeyInput.value.trim();
+                
+                if (!this.apiKey) {
+                    this.showError('Please enter your OpenAI API key');
+                    return;
+                }
+
+                try {
+                    this.log('general', 'Starting dual session connection process...');
+                    this.updateStatus('🟡 Connecting...', 'status-connecting');
+                    this.connectBtn.disabled = true;
+                    this.metrics.sessionStartTime = Date.now();
+
+                    // Initialize audio context
+                    this.log('audio', 'Initializing audio context...');
+                    await this.initializeAudio();
+                    
+                    // Connect both sessions to OpenAI Realtime API via WebRTC
+                    this.log('webrtc', 'Starting dual WebRTC connections...');
+                    await Promise.all([
+                        this.connectSessionWebRTC('primary'),
+                        this.connectSessionWebRTC('secondary')
+                    ]);
+                    
+                    this.metrics.connectionTime = new Date();
+                    this.isConnected = true;
+                    this.log('general', 'Dual session connections established successfully');
+                    
+                    this.updateStatus('🟢 Connected - Dual Sessions Active', 'status-connected');
+                    this.connectBtn.disabled = true;
+                    this.disconnectBtn.disabled = false;
+                    this.updateSessionDisplay();
+                    
+                } catch (error) {
+                    this.log('general', `Connection failed: ${error.message}`, 'error');
+                    this.showError(`Connection failed: ${error.message}`);
+                    this.updateStatus('🔴 Disconnected', 'status-disconnected');
+                    this.connectBtn.disabled = false;
+                }
+            }
+
+            updateSessionDisplay() {
+                this.primarySessionStatusElement.textContent = this.sessions.primary.isConnected ? 'Connected' : 'Disconnected';
+                this.secondarySessionStatusElement.textContent = this.sessions.secondary.isConnected ? 'Connected' : 'Disconnected';
+                this.activeSessionDisplayElement.textContent = this.activeSession.charAt(0).toUpperCase() + this.activeSession.slice(1);
+                this.sessionSwitchesElement.textContent = this.metrics.sessionSwitches;
+                
+                // Update audio status
+                this.updateAudioStatus();
+            }
+
+            updateAudioStatus() {
+                const primaryAudio = document.getElementById('remoteAudio_primary');
+                const secondaryAudio = document.getElementById('remoteAudio_secondary');
+                
+                const primaryPlaying = primaryAudio && !primaryAudio.muted && primaryAudio.volume > 0;
+                const secondaryPlaying = secondaryAudio && !secondaryAudio.muted && secondaryAudio.volume > 0;
+                
+                if (primaryPlaying && secondaryPlaying) {
+                    this.audioStatusElement.textContent = 'Mixed Audio';
+                    this.audioStatusElement.style.color = '#ff6b35';
+                } else if (primaryPlaying || secondaryPlaying) {
+                    this.audioStatusElement.textContent = 'Single Session';
+                    this.audioStatusElement.style.color = '#28a745';
+                } else {
+                    this.audioStatusElement.textContent = 'No Audio';
+                    this.audioStatusElement.style.color = '#6c757d';
+                }
+            }
+
+            sendMessage(message) {
+                // Send to the currently active session
+                const activeSession = this.sessions[this.activeSession];
+                this.sendMessageToSession(activeSession, message);
+            }
+
+            sendMessageToSession(session, message) {
+                if (session.dc && session.dc.readyState === 'open') {
+                    session.dc.send(JSON.stringify(message));
+                    this.metrics.messagesSent++;
+                    this.log('api', `Sent to ${session.id}: ${message.type}`, 'info');
+                } else {
+                    this.log('api', `Failed to send message to session ${session.id}: data channel not ready (${session.dc?.readyState || 'null'})`, 'error');
+                }
+            }
+
+            async initializeAudio() {
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                
+                this.mediaStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    } 
+                });
+                
+                this.microphone = this.audioContext.createMediaStreamSource(this.mediaStream);
+                this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
+                
+                // Set up audio processing for visualization only (WebRTC handles audio streaming)
+                this.processor.onaudioprocess = (event) => {
+                    const inputData = event.inputBuffer.getChannelData(0);
+                    this.visualizeAudio(inputData);
+                };
+                
+                this.microphone.connect(this.processor);
+                this.processor.connect(this.audioContext.destination);
+            }
+
+            visualizeAudio(audioData) {
+                // Calculate RMS (Root Mean Square) for volume level
+                let sum = 0;
+                for (let i = 0; i < audioData.length; i++) {
+                    sum += audioData[i] * audioData[i];
+                }
+                const rms = Math.sqrt(sum / audioData.length);
+                const volume = Math.min(rms * 100, 100);
+                
+                // Update metrics
+                this.metrics.currentVolume = volume;
+                if (volume > this.metrics.peakVolume) {
+                    this.metrics.peakVolume = volume;
+                }
+                
+                // Calculate running average
+                this.metrics.volumeHistory.push(volume);
+                if (this.metrics.volumeHistory.length > 100) {
+                    this.metrics.volumeHistory = this.metrics.volumeHistory.slice(-100);
+                }
+                this.metrics.avgVolume = this.metrics.volumeHistory.reduce((a, b) => a + b, 0) / this.metrics.volumeHistory.length;
+                
+                // Update noise floor (minimum sustained level)
+                if (volume < this.metrics.noiseFloor && volume > 1) {
+                    this.metrics.noiseFloor = volume;
+                }
+                
+                this.volumeLevel.style.width = `${volume}%`;
+                
+                // Animate wave bars
+                this.bars.forEach((bar, index) => {
+                    const height = Math.random() * volume + 5;
+                    bar.style.height = `${height}px`;
+                });
+                
+                // Voice Activity Detection
+                this.performVoiceActivityDetection(volume);
+                
+                // Log significant audio events
+                if (volume > 50 && this.metrics.currentVolume < 20) {
+                    this.log('audio', `Audio spike detected: ${Math.round(volume)}%`);
+                }
+            }
+
+            performVoiceActivityDetection(volume) {
+                const currentTime = Date.now();
+                const speechThreshold = Math.max(this.metrics.noiseFloor * 3, this.vad.silenceThreshold * 100);
+                const isSpeaking = volume > speechThreshold;
+                
+                if (isSpeaking) {
+                    this.vad.consecutiveSpeechFrames++;
+                    this.vad.consecutiveSilenceFrames = 0;
+                    this.vad.lastSpeechTime = currentTime;
+                    
+                    if (!this.vad.isUserSpeaking) {
+                        this.vad.speechStartTime = currentTime;
+                        this.vad.isUserSpeaking = true;
+                        this.log('audio', `User started speaking (volume: ${Math.round(volume)}%, threshold: ${Math.round(speechThreshold)}%)`);
+                        
+                        // Check if we should switch sessions due to user interruption
+                        this.checkForSessionSwitch();
+                    }
+                } else {
+                    this.vad.consecutiveSilenceFrames++;
+                    this.vad.consecutiveSpeechFrames = 0;
+                    
+                    if (this.vad.isUserSpeaking && 
+                        this.vad.lastSpeechTime && 
+                        (currentTime - this.vad.lastSpeechTime) > this.vad.silenceDurationThreshold) {
+                        this.vad.isUserSpeaking = false;
+                        this.log('audio', 'User stopped speaking');
+                    }
+                }
+            }
+
+            checkForSessionSwitch() {
+                if (!this.isConnected) return;
+                
+                const currentTime = Date.now();
+                const activeSession = this.sessions[this.activeSession];
+                const inactiveSessionKey = this.activeSession === 'primary' ? 'secondary' : 'primary';
+                const inactiveSession = this.sessions[inactiveSessionKey];
+                
+                // Only switch if the inactive session is also connected
+                if (inactiveSession.isConnected && 
+                    this.vad.speechStartTime && 
+                    (currentTime - this.vad.speechStartTime) > this.vad.speechDurationThreshold) {
+                    
+                    this.log('general', `Switching from ${this.activeSession} to ${inactiveSessionKey} session due to user speech - GPT continues on ${this.activeSession}`);
+                    
+                    // Switch active session for NEW input (don't interrupt ongoing responses)
+                    this.activeSession = inactiveSessionKey;
+                    activeSession.isActive = false;
+                    inactiveSession.isActive = true;
+                    
+                    this.metrics.sessionSwitches++;
+                    this.metrics.currentSessionType = this.activeSession;
+                    
+                    // Update audio routing - mute the previous session, unmute the new active one
+                    this.updateAudioRouting();
+                    
+                    // Update UI
+                    this.updateSessionDisplay();
+                    
+                    // DON'T cancel the previous session - let it continue responding
+                    // This allows GPT to finish its response while user starts new conversation
+                    this.log('api', `${activeSession.id} continues responding while ${inactiveSession.id} handles new input`);
+                }
+            }
+
+            sendCancellationToSession(session) {
+                if (session.dc && session.dc.readyState === 'open') {
+                    this.sendMessageToSession(session, {
+                        type: 'response.cancel'
+                    });
+                    this.log('api', 'Sent cancellation to interrupted session');
+                }
+            }
+
+            updateAudioRouting() {
+                // Smart audio routing: allow both sessions to play, but manage volume
+                Object.keys(this.sessions).forEach(sessionKey => {
+                    const audioElement = document.getElementById(`remoteAudio_${sessionKey}`);
+                    if (audioElement) {
+                        const session = this.sessions[sessionKey];
+                        
+                        // Don't mute immediately - let both sessions play for smoother transitions
+                        // The active session gets full volume, inactive session gets reduced volume
+                        if (session.isActive) {
+                            audioElement.muted = false;
+                            audioElement.volume = 1.0;
+                            this.log('audio', `Full volume for active ${sessionKey} session`);
+                        } else {
+                            // Keep inactive session audible but at lower volume for continuity
+                            audioElement.muted = false;
+                            audioElement.volume = 0.3; // Reduced but still audible
+                            this.log('audio', `Reduced volume for inactive ${sessionKey} session`);
+                            
+                            // After a delay, gradually fade out the inactive session
+                            setTimeout(() => {
+                                if (!session.isActive && audioElement) {
+                                    this.fadeOutAudio(audioElement, sessionKey);
+                                }
+                            }, 2000); // Give 2 seconds for GPT to potentially finish its thought
+                        }
+                    }
+                });
+                
+                // Update the audio status indicator
+                setTimeout(() => this.updateAudioStatus(), 100); // Small delay to ensure DOM updates
+            }
+
+            fadeOutAudio(audioElement, sessionKey) {
+                if (!audioElement) return;
+                
+                const fadeSteps = 10;
+                const fadeInterval = 200; // 200ms per step
+                let currentStep = 0;
+                const initialVolume = audioElement.volume;
+                
+                const fadeTimer = setInterval(() => {
+                    currentStep++;
+                    const newVolume = initialVolume * (1 - currentStep / fadeSteps);
+                    audioElement.volume = Math.max(0, newVolume);
+                    
+                    if (currentStep >= fadeSteps) {
+                        clearInterval(fadeTimer);
+                        audioElement.muted = true;
+                        audioElement.volume = 1.0; // Reset for future use
+                        this.log('audio', `Faded out ${sessionKey} session audio`);
+                        this.updateAudioStatus(); // Update status when fade completes
+                    }
+                }, fadeInterval);
+            }
+
+            async connectSessionWebRTC(sessionKey) {
+                const session = this.sessions[sessionKey];
+                
+                // Create RTCPeerConnection for this session
+                session.pc = new RTCPeerConnection();
+                session.id = `${sessionKey}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+                this.log('webrtc', `Created RTCPeerConnection for ${sessionKey} session (${session.id})`);
+                
+                // Add WebRTC event listeners
+                session.pc.addEventListener('connectionstatechange', () => {
+                    this.log('webrtc', `${sessionKey} connection state changed: ${session.pc.connectionState}`);
+                    this.updateSessionDisplay();
+                });
+                
+                session.pc.addEventListener('iceconnectionstatechange', () => {
+                    this.log('webrtc', `${sessionKey} ICE connection state changed: ${session.pc.iceConnectionState}`);
+                });
+                
+                session.pc.addEventListener('icegatheringstatechange', () => {
+                    this.log('webrtc', `${sessionKey} ICE gathering state changed: ${session.pc.iceGatheringState}`);
+                });
+                
+                session.pc.addEventListener('signalingstatechange', () => {
+                    this.log('webrtc', `${sessionKey} signaling state changed: ${session.pc.signalingState}`);
+                });
+                
+                // Create data channel for messages
+                session.dc = session.pc.createDataChannel("oai-events");
+                this.log('webrtc', `Created data channel for ${sessionKey} session: oai-events`);
+                
+                // Handle data channel messages
+                session.dc.onopen = () => {
+                    this.log('webrtc', `${sessionKey} data channel opened`);
+                    session.isConnected = true;
+                    this.updateSessionDisplay();
+                    
+                    // Generate session ID for UI display (use primary session ID)
+                    if (sessionKey === 'primary') {
+                        this.metrics.sessionId = session.id;
+                        this.sessionIdElement.textContent = this.metrics.sessionId;
+                    }
+                    
+                    // Send initial configuration
+                    const instructions = this.systemInstructionsInput.value.trim() || 'You are a helpful AI assistant. Respond naturally and conversationally.';
+                    this.log('api', `Sending session.update to ${sessionKey} with instructions: ${instructions.substring(0, 50)}...`);
+                    this.sendMessageToSession(session, {
+                        type: 'session.update',
+                        session: {
+                            modalities: ['text', 'audio'],
+                            instructions: instructions,
+                            voice: 'alloy',
+                            input_audio_format: 'pcm16',
+                            output_audio_format: 'pcm16',
+                            turn_detection: {
+                                type: 'server_vad',
+                                threshold: 0.5,
+                                prefix_padding_ms: 300,
+                                silence_duration_ms: 500,
+                                interrupt_response: false
+                            }
+                        }
+                    });
+                };
+                
+                session.dc.onmessage = (event) => {
+                    this.handleDataChannelMessage(event, sessionKey);
+                };
+                
+                session.dc.onerror = (error) => {
+                    this.log('webrtc', `${sessionKey} data channel error: ${error.message}`, 'error');
+                };
+                
+                session.dc.onclose = () => {
+                    session.isConnected = false;
+                    this.log('webrtc', `${sessionKey} data channel closed`);
+                    this.updateSessionDisplay();
+                    
+                    // Check if both sessions are disconnected
+                    if (!this.sessions.primary.isConnected && !this.sessions.secondary.isConnected) {
+                        this.isConnected = false;
+                        this.updateStatus('🔴 Disconnected', 'status-disconnected');
+                        this.connectBtn.disabled = false;
+                        this.disconnectBtn.disabled = true;
+                    }
+                };
+                
+                // Add local audio track (same stream for both sessions)
+                const tracks = this.mediaStream.getAudioTracks();
+                if (tracks.length > 0) {
+                    session.pc.addTrack(tracks[0], this.mediaStream);
+                }
+                
+                // Handle remote audio
+                session.pc.ontrack = (event) => {
+                    const remoteAudio = document.createElement('audio');
+                    remoteAudio.srcObject = event.streams[0];
+                    remoteAudio.autoplay = true;
+                    remoteAudio.id = `remoteAudio_${sessionKey}`;
+                    
+                    // Set initial volume based on session activity (both start unmuted for smart routing)
+                    remoteAudio.muted = false;
+                    remoteAudio.volume = session.isActive ? 1.0 : 0.3;
+                    
+                    // Remove existing audio element for this session if it exists
+                    const existingAudio = document.getElementById(`remoteAudio_${sessionKey}`);
+                    if (existingAudio) {
+                        existingAudio.remove();
+                    }
+                    
+                    document.body.appendChild(remoteAudio);
+                    this.log('audio', `Set up remote audio for ${sessionKey} session (volume: ${remoteAudio.volume})`);
+                };
+                
+                // Create offer
+                const offer = await session.pc.createOffer();
+                await session.pc.setLocalDescription(offer);
+                
+                // Send offer to OpenAI
+                const response = await fetch('https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${this.apiKey}`,
+                        'Content-Type': 'application/sdp'
+                    },
+                    body: offer.sdp
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText} for ${sessionKey} session`);
+                }
+                
+                const answerSdp = await response.text();
+                const answer = {
+                    type: 'answer',
+                    sdp: answerSdp
+                };
+                
+                await session.pc.setRemoteDescription(answer);
+                
+                // Wait for connection to be established
+                return new Promise((resolve, reject) => {
+                    const timeout = setTimeout(() => {
+                        reject(new Error(`${sessionKey} session connection timeout. State: ${session.pc.connectionState}`));
+                    }, 10000);
+                    
+                    session.pc.addEventListener('connectionstatechange', () => {
+                        if (session.pc.connectionState === 'connected') {
+                            clearTimeout(timeout);
+                            this.log('webrtc', `${sessionKey} WebRTC connection established!`);
+                            resolve();
+                        } else if (session.pc.connectionState === 'failed') {
+                            clearTimeout(timeout);
+                            reject(new Error(`${sessionKey} WebRTC connection failed`));
+                        }
+                    });
+                });
+            }
+
+            handleDataChannelMessage(event, sessionKey) {
+                try {
+                    const message = JSON.parse(event.data);
+                    this.metrics.messagesReceived++;
+                    this.log('api', `Received from ${sessionKey}: ${message.type}`, 'info');
+                    
+                    switch (message.type) {
+                        case 'conversation.item.created':
+                            if (message.item.type === 'message' && message.item.role === 'assistant') {
+                                this.log('api', `Assistant message created: ${message.item.id}`);
+                            }
+                            break;
+                            
+                        case 'response.audio.delta':
+                            // Play audio chunk
+                            this.metrics.audioOutputTokens += message.delta ? message.delta.length / 100 : 0; // Rough estimate
+                            this.playAudioChunk(message.delta);
+                            break;
+                            
+                        case 'response.text.delta':
+                            // Handle text response
+                            if (message.delta) {
+                                this.metrics.textTokens += message.delta.length / 4; // Rough token estimate
+                            }
+                            this.handleTextResponse(message.delta);
+                            break;
+                            
+                        case 'conversation.item.input_audio_transcription.completed':
+                            // Display user's transcribed speech
+                            if (message.transcript) {
+                                this.addMessage(message.transcript, true);
+                                this.metrics.audioInputTokens += message.transcript.length / 4; // Rough estimate
+                                this.log('api', `User transcript: "${message.transcript}"`);
+                            }
+                            break;
+                            
+                        case 'session.created':
+                            this.log('api', `Session created: ${message.session?.id || 'unknown'}`);
+                            break;
+                            
+                        case 'session.updated':
+                            this.log('api', 'Session configuration updated');
+                            break;
+                            
+                        case 'input_audio_buffer.committed':
+                            this.log('api', 'Audio buffer committed');
+                            break;
+                            
+                        case 'response.created':
+                            this.log('api', `Response created: ${message.response?.id || 'unknown'}`);
+                            break;
+                            
+                        case 'response.done':
+                            this.log('api', `Response completed: ${message.response?.id || 'unknown'}`);
+                            // Calculate rough cost estimation
+                            this.metrics.estimatedCost = (
+                                (this.metrics.audioInputTokens * 0.006 / 1000) +
+                                (this.metrics.audioOutputTokens * 0.024 / 1000) +
+                                (this.metrics.textTokens * 0.01 / 1000)
+                            );
+                            break;
+                            
+                        case 'error':
+                            this.log('api', `API Error: ${message.error.message}`, 'error');
+                            this.showError(`API Error: ${message.error.message}`);
+                            break;
+                            
+                        case 'rate_limits.updated':
+                            if (message.rate_limits) {
+                                this.log('api', `Rate limits updated. Requests: ${message.rate_limits.requests_remaining}/${message.rate_limits.requests_limit}`);
+                            }
+                            break;
+                            
+                        default:
+                            this.log('api', `Unhandled message type: ${message.type}`, 'warn');
+                    }
+                } catch (error) {
+                    this.log('api', `Error parsing data channel message: ${error.message}`, 'error');
+                }
+            }
+
+
+
+            // Audio handling is now done by WebRTC directly
+            playAudioChunk(base64Audio) {
+                // WebRTC handles audio playback automatically
+                console.log('Audio chunk received (handled by WebRTC)');
+            }
+
+            handleTextResponse(textDelta) {
+                // For now, just log the text response
+                // In a full implementation, you might want to accumulate the deltas
+                // and display the complete response
+                console.log('Text response delta:', textDelta);
+            }
+
+            disconnect() {
+                this.log('general', 'Starting dual session disconnect process...');
+                
+                // Disconnect both sessions
+                Object.keys(this.sessions).forEach(sessionKey => {
+                    const session = this.sessions[sessionKey];
+                    
+                    if (session.pc) {
+                        this.log('webrtc', `Closing ${sessionKey} RTCPeerConnection`);
+                        session.pc.close();
+                        session.pc = null;
+                    }
+                    
+                    if (session.dc) {
+                        this.log('webrtc', `Closing ${sessionKey} data channel`);
+                        session.dc.close();
+                        session.dc = null;
+                    }
+                    
+                    session.isConnected = false;
+                    session.isActive = sessionKey === 'primary'; // Reset to primary active
+                    session.id = null;
+                    
+                    // Remove remote audio elements
+                    const audioElement = document.getElementById(`remoteAudio_${sessionKey}`);
+                    if (audioElement) {
+                        audioElement.remove();
+                    }
+                });
+                
+                if (this.processor) {
+                    this.log('audio', 'Disconnecting audio processor');
+                    this.processor.disconnect();
+                    this.microphone.disconnect();
+                }
+                
+                // Stop media stream tracks to release microphone
+                if (this.mediaStream) {
+                    this.log('audio', 'Stopping media stream tracks');
+                    this.mediaStream.getTracks().forEach(track => track.stop());
+                }
+                
+                if (this.audioContext) {
+                    this.log('audio', 'Closing audio context');
+                    this.audioContext.close();
+                }
+                
+                this.isConnected = false;
+                this.activeSession = 'primary'; // Reset to primary
+                this.updateStatus('🔴 Disconnected', 'status-disconnected');
+                this.connectBtn.disabled = false;
+                this.disconnectBtn.disabled = true;
+                
+                // Reset visualizations
+                this.volumeLevel.style.width = '0%';
+                this.bars.forEach(bar => {
+                    bar.style.height = '5px';
+                });
+                
+                // Reset connection state displays
+                this.webrtcStateElement.textContent = '-';
+                this.dataChannelStateElement.textContent = '-';
+                this.iceConnectionStateElement.textContent = '-';
+                this.iceGatheringStateElement.textContent = '-';
+                this.signalingStateElement.textContent = '-';
+                
+                // Update session display
+                this.updateSessionDisplay();
+                
+                // Log session summary
+                if (this.metrics.sessionStartTime) {
+                    const sessionDuration = Date.now() - this.metrics.sessionStartTime;
+                    this.log('general', `Session ended. Duration: ${Math.round(sessionDuration / 1000)}s, Messages sent: ${this.metrics.messagesSent}, Messages received: ${this.metrics.messagesReceived}`);
+                }
+                
+                this.log('general', 'Disconnect completed');
+            }
+        }
+
+        // Initialize the application when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new OpenAIRealtimeClient();
+        });
+    </script>
+</body>
+</html>

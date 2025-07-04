@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenAI o3 Chat Interface</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f8f9fa;
+            padding: 20px;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 30px;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #2c3e50;
+            font-weight: 300;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #555;
+        }
+        
+        input[type="text"], textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="text"]:focus, textarea:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+        
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+        
+        .api-key-group {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            width: 100%;
+        }
+        
+        button:hover {
+            background: #0056b3;
+        }
+        
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 12px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        
+        .response-table {
+            margin-top: 30px;
+            overflow-x: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #555;
+        }
+        
+        tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .response-content {
+            max-width: 400px;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+        
+        .korean-word {
+            font-size: 18px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .examples {
+            font-style: italic;
+            color: #666;
+            line-height: 1.4;
+        }
+        
+        .emoji {
+            font-size: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>OpenAI o3 Interface</h1>
+        
+        <form id="chatForm">
+            <div class="api-key-group">
+                <div class="form-group">
+                    <label for="apiKey">OpenAI API Key:</label>
+                    <input type="password" id="apiKey" placeholder="sk-..." required>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="systemInstructions">System Instructions:</label>
+                <textarea rows="20" id="systemInstructions" placeholder="You are a helpful assistant..."></textarea>
+            </div>
+            
+            <div class="form-group">
+                <label for="userMessage">User Message:</label>
+                <textarea rows="20" id="userMessage" placeholder="Enter your message here..." required></textarea>
+            </div>
+            
+            <button type="submit" id="submitBtn">Send to OpenAI</button>
+        </form>
+        
+        <div id="loading" class="loading" style="display: none;">
+            Sending request to OpenAI...
+        </div>
+        
+        <div id="error" class="error" style="display: none;"></div>
+        
+        <div id="responseTable" class="response-table" style="display: none;">
+            <h3>Response</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Field</th>
+                        <th>Value</th>
+                    </tr>
+                </thead>
+                <tbody id="responseBody">
+                </tbody>
+            </table>
+        </div>
+        
+        <div id="koreanVocabTable" class="response-table" style="display: none;">
+            <h3>Korean Vocabulary</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Korean</th>
+                        <th>English</th>
+                        <th>Examples</th>
+                        <th>Emoji</th>
+                    </tr>
+                </thead>
+                <tbody id="koreanVocabBody">
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // Load saved values from localStorage on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const savedApiKey = localStorage.getItem('openai_api_key');
+            const savedSystemInstructions = localStorage.getItem('system_instructions');
+            
+            if (savedApiKey) {
+                document.getElementById('apiKey').value = savedApiKey;
+            }
+            
+            if (savedSystemInstructions) {
+                document.getElementById('systemInstructions').value = savedSystemInstructions;
+            }
+        });
+        
+        // Save API key to localStorage when it changes
+        document.getElementById('apiKey').addEventListener('input', function(e) {
+            localStorage.setItem('openai_api_key', e.target.value);
+        });
+        
+        // Save system instructions to localStorage when they change
+        document.getElementById('systemInstructions').addEventListener('input', function(e) {
+            localStorage.setItem('system_instructions', e.target.value);
+        });
+        
+        document.getElementById('chatForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const apiKey = document.getElementById('apiKey').value;
+            const systemInstructions = document.getElementById('systemInstructions').value;
+            const userMessage = document.getElementById('userMessage').value;
+            
+            if (!apiKey) {
+                showError('Please enter your OpenAI API key');
+                return;
+            }
+            
+            if (!userMessage) {
+                showError('Please enter a user message');
+                return;
+            }
+            
+            // Show loading state
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('responseTable').style.display = 'none';
+            document.getElementById('koreanVocabTable').style.display = 'none';
+            document.getElementById('submitBtn').disabled = true;
+            
+            try {
+                const messages = [];
+                
+                if (systemInstructions) {
+                    messages.push({
+                        role: 'system',
+                        content: systemInstructions
+                    });
+                }
+                
+                messages.push({
+                    role: 'user',
+                    content: userMessage
+                });
+                
+                const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: JSON.stringify({
+                        model: 'o3',
+                        messages: messages,
+                        // max_tokens: 1000,
+                        // temperature: 0.7
+                    })
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                displayResponse(data);
+                
+            } catch (error) {
+                showError('Error: ' + error.message);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('submitBtn').disabled = false;
+            }
+        });
+        
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+        
+        function displayResponse(data) {
+            const tbody = document.getElementById('responseBody');
+            tbody.innerHTML = '';
+            
+            const responseContent = data.choices?.[0]?.message?.content || 'N/A';
+            
+            // Display key response data in table format
+            const responseData = [
+                ['Model', data.model || 'N/A'],
+                ['Response Content', responseContent],
+                ['Finish Reason', data.choices?.[0]?.finish_reason || 'N/A'],
+                ['Total Tokens', data.usage?.total_tokens || 'N/A'],
+                ['Prompt Tokens', data.usage?.prompt_tokens || 'N/A'],
+                ['Completion Tokens', data.usage?.completion_tokens || 'N/A'],
+                ['Created', new Date((data.created || 0) * 1000).toLocaleString()],
+                ['ID', data.id || 'N/A']
+            ];
+            
+            responseData.forEach(([field, value]) => {
+                const row = document.createElement('tr');
+                const fieldCell = document.createElement('td');
+                const valueCell = document.createElement('td');
+                
+                fieldCell.textContent = field;
+                valueCell.textContent = value;
+                valueCell.className = 'response-content';
+                
+                row.appendChild(fieldCell);
+                row.appendChild(valueCell);
+                tbody.appendChild(row);
+            });
+            
+            document.getElementById('responseTable').style.display = 'block';
+            
+            // Try to parse Korean vocabulary data from response
+            displayKoreanVocab(responseContent);
+        }
+        
+        function displayKoreanVocab(content) {
+            const koreanVocabTable = document.getElementById('koreanVocabTable');
+            const koreanVocabBody = document.getElementById('koreanVocabBody');
+            
+            try {
+                // Try to extract JSON from the response content
+                let jsonMatch = content.match(/\[[\s\S]*\]/);
+                if (!jsonMatch) {
+                    // Try to find JSON wrapped in code blocks
+                    jsonMatch = content.match(/```(?:json)?\s*(\[[\s\S]*?\])\s*```/);
+                    if (jsonMatch) {
+                        jsonMatch[0] = jsonMatch[1];
+                    }
+                }
+                
+                if (jsonMatch) {
+                    const vocabData = JSON.parse(jsonMatch[0]);
+                    
+                    // Check if it's an array with Korean vocabulary structure
+                    if (Array.isArray(vocabData) && vocabData.length > 0 && 
+                        vocabData[0].hasOwnProperty('korean') && 
+                        vocabData[0].hasOwnProperty('english')) {
+                        
+                        koreanVocabBody.innerHTML = '';
+                        
+                        vocabData.forEach(item => {
+                            const row = document.createElement('tr');
+                            
+                            // Korean word
+                            const koreanCell = document.createElement('td');
+                            koreanCell.textContent = item.korean || '';
+                            koreanCell.className = 'korean-word';
+                            
+                            // English translation
+                            const englishCell = document.createElement('td');
+                            englishCell.textContent = item.english || '';
+                            
+                            // Examples
+                            const exampleCell = document.createElement('td');
+                            exampleCell.textContent = item.example || '';
+                            exampleCell.className = 'examples';
+                            
+                            // Emoji
+                            const emojiCell = document.createElement('td');
+                            emojiCell.textContent = item.emoji || '';
+                            emojiCell.className = 'emoji';
+                            
+                            row.appendChild(koreanCell);
+                            row.appendChild(englishCell);
+                            row.appendChild(exampleCell);
+                            row.appendChild(emojiCell);
+                            koreanVocabBody.appendChild(row);
+                        });
+                        
+                        koreanVocabTable.style.display = 'block';
+                        return;
+                    }
+                }
+            } catch (error) {
+                console.log('Could not parse Korean vocabulary data:', error);
+            }
+            
+            // Hide the Korean vocab table if no valid data found
+            koreanVocabTable.style.display = 'none';
+        }
+    </script>
+</body>
+</html>
