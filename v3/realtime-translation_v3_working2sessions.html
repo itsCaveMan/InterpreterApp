@@ -1,0 +1,408 @@
+
+
+<!-- RESULTS:
+
+    having 2 sessions is working.
+    this page is successfully alternating between 2 realtime sessions.
+    
+    Next steps:
+    - Try to use 1 session. only use the 2nd if the first one is not idle - this is to overcome the conversation context loss.
+    - The turn detection is too quick. it needs to wait a little longer before switching to the other session.
+
+    improvements:
+    - the turn detectiong could be improved. it should wait a little longer before switching to the other session.
+    - The translation is abit un-coherent. that's likely due to the conversation missing each second message.
+
+
+-->
+
+
+<!-- Working realtime. however bargin is not solved here -->
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Real-time Translation Service</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-4 py-6 max-w-md">
+        <h1 class="text-2xl font-bold text-center mb-6 text-gray-800">
+            Real-time Translation
+        </h1>
+        
+        <!-- API Key Input -->
+        <div class="mb-4">
+            <label for="apiKey" class="block text-sm font-medium text-gray-700 mb-2">
+                OpenAI API Key
+            </label>
+            <input 
+                type="password" 
+                id="apiKey" 
+                placeholder="Enter your OpenAI API key"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+            >
+        </div>
+
+        <!-- Prompt Input -->
+        <div class="mb-4">
+            <label for="prompt" class="block text-sm font-medium text-gray-700 mb-2">
+                Translation Prompt
+            </label>
+            <textarea 
+                id="prompt" 
+                rows="3"
+                placeholder="e.g., Translate this English to Korean"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 resize-none"
+            >Translate this English to Korean</textarea>
+        </div>
+
+        <!-- Control Button -->
+        <div class="mb-6">
+            <button 
+                id="startButton"
+                class="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-3 px-4 rounded-md transition-colors"
+            >
+                Start Translation Session
+            </button>
+        </div>
+
+        <!-- Status Display -->
+        <div id="status" class="text-center text-sm text-gray-600 mb-4">
+            Ready to start
+        </div>
+
+        <!-- Audio Elements -->
+        <audio id="audioPlayback1" autoplay playsinline class="hidden"></audio>
+        <audio id="audioPlayback2" autoplay playsinline class="hidden"></audio>
+    </div>
+
+    <script>
+        class RealtimeTranslator {
+            constructor() {
+                this.sessions = [null, null]; // Two realtime sessions
+                this.localStream = null;      // Microphone stream (base)
+                this.isConnected = false;
+                this.activeSessionIndex = 0;  // 0 or 1
+                this.endOfSpeechDelayMs = 500; // Debounce before switching sessions
+                this.pendingSwitchTimerId = null;
+                this.pendingSwitchFromIndex = null;
+
+                this.apiKeyInput = document.getElementById('apiKey');
+                this.promptInput = document.getElementById('prompt');
+                this.startButton = document.getElementById('startButton');
+                this.statusDiv = document.getElementById('status');
+                this.audioPlayback1 = document.getElementById('audioPlayback1');
+                this.audioPlayback2 = document.getElementById('audioPlayback2');
+
+                this.initializeEventListeners();
+            }
+
+            initializeEventListeners() {
+                this.startButton.addEventListener('click', () => {
+                    if (!this.isConnected) {
+                        this.startSession();
+                    } else {
+                        this.stopSession();
+                    }
+                });
+
+                // Save to localStorage when inputs change
+                this.apiKeyInput.addEventListener('input', () => {
+                    localStorage.setItem('openai-api-key', this.apiKeyInput.value);
+                });
+
+                this.promptInput.addEventListener('input', () => {
+                    localStorage.setItem('translation-prompt', this.promptInput.value);
+                });
+
+                // Restore values from localStorage on page load
+                this.restoreFromLocalStorage();
+            }
+
+            restoreFromLocalStorage() {
+                const savedApiKey = localStorage.getItem('openai-api-key');
+                const savedPrompt = localStorage.getItem('translation-prompt');
+
+                if (savedApiKey) {
+                    this.apiKeyInput.value = savedApiKey;
+                }
+
+                if (savedPrompt) {
+                    this.promptInput.value = savedPrompt;
+                }
+            }
+
+            updateStatus(message) {
+                this.statusDiv.textContent = message;
+            }
+
+            async startSession() {
+                const apiKey = this.apiKeyInput.value.trim();
+                const prompt = this.promptInput.value.trim();
+
+                if (!apiKey) {
+                    this.updateStatus('Please enter your OpenAI API key');
+                    return;
+                }
+
+                if (!prompt) {
+                    this.updateStatus('Please enter a translation prompt');
+                    return;
+                }
+
+                try {
+                    this.startButton.disabled = true;
+                    this.updateStatus('Requesting microphone...');
+
+                    // 1) Get microphone access once
+                    this.localStream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true
+                        }
+                    });
+
+                    const baseMicTrack = this.localStream.getAudioTracks()[0];
+                    const micTrack1 = baseMicTrack.clone();
+                    const micTrack2 = baseMicTrack.clone();
+
+                    // 2) Create two sessions in parallel
+                    await Promise.all([
+                        this.createSession(0, micTrack1, this.audioPlayback1, apiKey, prompt),
+                        this.createSession(1, micTrack2, this.audioPlayback2, apiKey, prompt)
+                    ]);
+
+                    // 3) Start with session 0 active (mic on), session 1 muted
+                    this.setActiveSession(0);
+
+                    this.startButton.textContent = 'Stop Translation Session';
+                    this.startButton.disabled = false;
+                } catch (error) {
+                    console.error('Error starting sessions:', error);
+                    this.updateStatus('Error: ' + error.message);
+                    this.startButton.disabled = false;
+                    this.stopSession();
+                }
+            }
+
+            // Get ephemeral token if using real API key
+            async getClientToken(keyOrToken) {
+                const looksLikeRealKey = keyOrToken.startsWith("sk-");
+                if (!looksLikeRealKey) return keyOrToken; // already ephemeral
+
+                this.updateStatus('Creating ephemeral token...');
+                const response = await fetch("https://api.openai.com/v1/realtime/sessions", {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${keyOrToken}`,
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({ 
+                        model: "gpt-4o-realtime-preview",
+                        voice: "alloy"
+                    }),
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to create session (${response.status})`);
+                }
+                
+                const data = await response.json();
+                const token = data?.client_secret?.value;
+                if (!token) {
+                    throw new Error("No client_secret.value in session response");
+                }
+                return token;
+            }
+
+            // Wait for ICE gathering to complete
+            async waitForIceGathering(conn) {
+                if (conn.iceGatheringState === "complete") return;
+                await new Promise((resolve) => {
+                    const check = () => {
+                        if (conn.iceGatheringState === "complete") {
+                            conn.removeEventListener("icegatheringstatechange", check);
+                            resolve();
+                        }
+                    };
+                    conn.addEventListener("icegatheringstatechange", check);
+                });
+            }
+
+            async createSession(index, micTrack, audioElement, keyOrToken, prompt) {
+                try {
+                    // Get ephemeral token if a real key is provided
+                    const clientToken = await this.getClientToken(keyOrToken);
+
+                    // Create WebRTC peer connection
+                    const pc = new RTCPeerConnection({
+                        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+                    });
+
+                    // Add microphone track (clone specific to this session)
+                    const localStreamForThisSession = new MediaStream([micTrack]);
+                    pc.addTrack(micTrack, localStreamForThisSession);
+
+                    // Handle incoming audio
+                    const inboundStream = new MediaStream();
+                    pc.ontrack = (event) => {
+                        inboundStream.addTrack(event.track);
+                        audioElement.srcObject = inboundStream;
+                        audioElement.play();
+                    };
+
+                    // Monitor connection state
+                    pc.onconnectionstatechange = () => {
+                        console.log(`Session ${index} state:`, pc.connectionState);
+                        if (["failed", "disconnected", "closed"].includes(pc.connectionState)) {
+                            this.stopSession();
+                        }
+                    };
+
+                    // Data channel
+                    const dc = pc.createDataChannel(`oai-events-${index}`);
+                    dc.onopen = () => {
+                        // Configure session with custom prompt and server VAD
+                        dc.send(JSON.stringify({
+                            type: "session.update",
+                            session: {
+                                instructions: prompt,
+                                turn_detection: {
+                                    type: "server_vad",
+                                    create_response: true
+                                },
+                                voice: "alloy",
+                                modalities: ["audio", "text"]
+                            }
+                        }));
+                        this.updateStatus('Connected - Speak now');
+                    };
+
+                    dc.onmessage = (event) => {
+                        // Try to parse server events to detect end of speech or response
+                        try {
+                            const msg = JSON.parse(event.data);
+                            const msgType = msg?.type || '';
+                            // If speech resumes on this session, cancel pending switch
+                            if (msgType === 'input_audio_buffer.speech_started' && this.pendingSwitchFromIndex === index) {
+                                if (this.pendingSwitchTimerId) {
+                                    clearTimeout(this.pendingSwitchTimerId);
+                                    this.pendingSwitchTimerId = null;
+                                    this.pendingSwitchFromIndex = null;
+                                }
+                            }
+                            if (
+                                (msgType === 'input_audio_buffer.speech_stopped') ||
+                                (msgType === 'input_audio_buffer.committed') ||
+                                (msgType === 'response.completed')
+                            ) {
+                                if (this.activeSessionIndex === index) {
+                                    // Debounce the switch to allow brief pauses
+                                    if (this.pendingSwitchTimerId) {
+                                        clearTimeout(this.pendingSwitchTimerId);
+                                    }
+                                    this.pendingSwitchFromIndex = index;
+                                    this.pendingSwitchTimerId = setTimeout(() => {
+                                        if (this.activeSessionIndex === index) {
+                                            this.setActiveSession(index === 0 ? 1 : 0);
+                                        }
+                                        this.pendingSwitchTimerId = null;
+                                        this.pendingSwitchFromIndex = null;
+                                    }, this.endOfSpeechDelayMs);
+                                }
+                            }
+                        } catch (_) {
+                            // Non-JSON messages are fine; ignore
+                        }
+                    };
+
+                    // Create SDP offer
+                    const offer = await pc.createOffer({ offerToReceiveAudio: true });
+                    await pc.setLocalDescription(offer);
+                    await this.waitForIceGathering(pc);
+
+                    // Exchange SDP with OpenAI
+                    const sdpResponse = await fetch(`https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview`, {
+                        method: "POST",
+                        headers: {
+                            "Authorization": `Bearer ${clientToken}`,
+                            "Content-Type": "application/sdp",
+                        },
+                        body: pc.localDescription.sdp,
+                    });
+
+                    if (!sdpResponse.ok) {
+                        throw new Error(`SDP exchange failed: ${sdpResponse.status} ${sdpResponse.statusText}`);
+                    }
+
+                    const answerSdp = await sdpResponse.text();
+                    await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+
+                    // Mute by default; active session gets enabled later
+                    micTrack.enabled = false;
+
+                    this.sessions[index] = { pc, dc, inboundStream, audioElement, micTrack };
+                } catch (error) {
+                    console.error(`Session ${index} connection error:`, error);
+                    this.updateStatus('Error: ' + error.message);
+                    throw error;
+                }
+            }
+
+            setActiveSession(index) {
+                if (!this.sessions[0] || !this.sessions[1]) return;
+                this.sessions[0].micTrack.enabled = (index === 0);
+                this.sessions[1].micTrack.enabled = (index === 1);
+                this.activeSessionIndex = index;
+                this.isConnected = true;
+                this.updateStatus(`Connected - Active session: ${index + 1}`);
+            }
+
+            stopSession() {
+                this.updateStatus('Disconnecting...');
+
+                // Close both sessions
+                for (let i = 0; i < this.sessions.length; i++) {
+                    const s = this.sessions[i];
+                    if (!s) continue;
+                    try {
+                        if (s.dc && s.dc.readyState === 'open') s.dc.close();
+                    } catch (_) {}
+                    try {
+                        if (s.pc) s.pc.close();
+                    } catch (_) {}
+                    try {
+                        if (s.micTrack) s.micTrack.stop();
+                    } catch (_) {}
+                    this.sessions[i] = null;
+                }
+
+                // Stop base microphone stream
+                if (this.localStream) {
+                    this.localStream.getTracks().forEach(track => track.stop());
+                }
+
+                this.localStream = null;
+                this.isConnected = false;
+                this.activeSessionIndex = 0;
+
+                this.resetUI();
+            }
+
+            resetUI() {
+                this.startButton.textContent = 'Start Translation Session';
+                this.startButton.disabled = false;
+                this.updateStatus('Ready to start');
+            }
+        }
+
+        // Initialize the translator when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new RealtimeTranslator();
+        });
+    </script>
+</body>
+</html>
