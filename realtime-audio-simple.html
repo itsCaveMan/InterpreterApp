@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OpenAI Realtime Audio - Simple Test</title>
+    <style>
+        body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background: #f7fafc; margin: 0; }
+        .container { max-width: 720px; margin: 0 auto; padding: 24px 16px; }
+        h1 { font-size: 20px; margin: 0 0 16px; color: #1a202c; }
+        .card { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+        label { display: block; font-size: 12px; color: #4a5568; margin-bottom: 6px; }
+        input, textarea { width: 100%; padding: 10px 12px; border: 1px solid #cbd5e0; border-radius: 6px; font-size: 14px; }
+        textarea { resize: vertical; min-height: 80px; }
+        .row { margin-bottom: 12px; }
+        .btn { width: 100%; background: #2563eb; color: white; border: none; padding: 12px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        .btn:hover { background: #1d4ed8; }
+        .btn:disabled { background: #a0aec0; cursor: not-allowed; }
+        .status { text-align: center; font-size: 12px; color: #4a5568; margin-top: 10px; }
+        .muted { color: #718096; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>OpenAI Realtime Audio - Simple Test</h1>
+        <div class="card">
+            <div class="row">
+                <label for="apiKey">OpenAI API Key or Ephemeral Token</label>
+                <input id="apiKey" type="password" placeholder="sk-... or ephemeral client token" />
+                <div class="muted">If you paste a real API key (sk-...), the page will create a temporary ephemeral token for the session.</div>
+            </div>
+            <div class="row">
+                <label for="prompt">Prompt / Instructions</label>
+                <textarea id="prompt" placeholder="You are a helpful voice assistant. Keep answers concise.">You are a helpful voice assistant. Keep answers concise.</textarea>
+            </div>
+            <div class="row">
+                <button id="toggleButton" class="btn">Start Session</button>
+            </div>
+            <div id="status" class="status">Ready</div>
+            <audio id="audioPlayback" autoplay playsinline class="hidden"></audio>
+        </div>
+    </div>
+
+    <script>
+        class RealtimeAudioClient {
+            constructor() {
+                this.peerConnection = null;
+                this.dataChannel = null;
+                this.microphoneStream = null;
+                this.isConnected = false;
+
+                this.apiKeyInput = document.getElementById('apiKey');
+                this.promptInput = document.getElementById('prompt');
+                this.toggleButton = document.getElementById('toggleButton');
+                this.statusDiv = document.getElementById('status');
+                this.audioPlayback = document.getElementById('audioPlayback');
+
+                this.initializeUI();
+                this.restoreFromLocalStorage();
+            }
+
+            initializeUI() {
+                this.toggleButton.addEventListener('click', () => {
+                    if (!this.isConnected) {
+                        this.start();
+                    } else {
+                        this.stop();
+                    }
+                });
+
+                this.apiKeyInput.addEventListener('input', () => {
+                    localStorage.setItem('openai-api-key', this.apiKeyInput.value);
+                });
+                this.promptInput.addEventListener('input', () => {
+                    localStorage.setItem('realtime-prompt', this.promptInput.value);
+                });
+            }
+
+            restoreFromLocalStorage() {
+                const savedKey = localStorage.getItem('openai-api-key');
+                const savedPrompt = localStorage.getItem('realtime-prompt');
+                if (savedKey) this.apiKeyInput.value = savedKey;
+                if (savedPrompt) this.promptInput.value = savedPrompt;
+            }
+
+            updateStatus(message) {
+                this.statusDiv.textContent = message;
+            }
+
+            async start() {
+                const keyOrToken = this.apiKeyInput.value.trim();
+                const prompt = this.promptInput.value.trim();
+
+                if (!keyOrToken) {
+                    this.updateStatus('Please enter your OpenAI API key or token');
+                    return;
+                }
+                if (!prompt) {
+                    this.updateStatus('Please enter a prompt');
+                    return;
+                }
+
+                try {
+                    this.toggleButton.disabled = true;
+                    this.updateStatus('Requesting microphone...');
+
+                    this.microphoneStream = await navigator.mediaDevices.getUserMedia({
+                        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+                    });
+
+                    const clientToken = await this.getClientToken(keyOrToken);
+
+                    this.peerConnection = new RTCPeerConnection({
+                        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                    });
+
+                    this.microphoneStream.getAudioTracks().forEach(track => {
+                        this.peerConnection.addTrack(track, this.microphoneStream);
+                    });
+
+                    const inboundStream = new MediaStream();
+                    this.peerConnection.ontrack = (event) => {
+                        inboundStream.addTrack(event.track);
+                        this.audioPlayback.srcObject = inboundStream;
+                        this.audioPlayback.play();
+                    };
+
+                    this.peerConnection.onconnectionstatechange = () => {
+                        if (["failed", "disconnected", "closed"].includes(this.peerConnection.connectionState)) {
+                            this.stop();
+                        }
+                    };
+
+                    this.dataChannel = this.peerConnection.createDataChannel('oai-events');
+                    this.dataChannel.onopen = () => {
+                        this.isConnected = true;
+                        this.updateStatus('Connected - Speak now');
+
+                        this.dataChannel.send(JSON.stringify({
+                            type: 'session.update',
+                            session: {
+                                instructions: prompt,
+                                turn_detection: { type: 'server_vad', create_response: true },
+                                voice: 'alloy',
+                                modalities: ['audio', 'text']
+                            }
+                        }));
+                    };
+                    this.dataChannel.onmessage = (event) => {
+                        console.log('Realtime event:', event.data);
+                    };
+
+                    this.updateStatus('Creating connection...');
+                    const offer = await this.peerConnection.createOffer({ offerToReceiveAudio: true });
+                    await this.peerConnection.setLocalDescription(offer);
+                    await this.waitForIceGathering(this.peerConnection);
+
+                    this.updateStatus('Connecting to OpenAI...');
+                    const sdpResponse = await fetch('https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${clientToken}`,
+                            'Content-Type': 'application/sdp'
+                        },
+                        body: this.peerConnection.localDescription.sdp
+                    });
+
+                    if (!sdpResponse.ok) {
+                        throw new Error(`SDP exchange failed: ${sdpResponse.status} ${sdpResponse.statusText}`);
+                    }
+
+                    const answerSdp = await sdpResponse.text();
+                    await this.peerConnection.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+
+                    this.toggleButton.textContent = 'Stop Session';
+                    this.toggleButton.disabled = false;
+                } catch (err) {
+                    console.error('Error starting session:', err);
+                    this.updateStatus('Error: ' + err.message);
+                    this.toggleButton.disabled = false;
+                    this.stop();
+                }
+            }
+
+            stop() {
+                this.updateStatus('Disconnecting...');
+
+                try { if (this.dataChannel && this.dataChannel.readyState === 'open') this.dataChannel.close(); } catch (_) {}
+                try { if (this.peerConnection) this.peerConnection.close(); } catch (_) {}
+                try { if (this.microphoneStream) this.microphoneStream.getTracks().forEach(t => t.stop()); } catch (_) {}
+
+                this.peerConnection = null;
+                this.dataChannel = null;
+                this.microphoneStream = null;
+                this.isConnected = false;
+
+                this.toggleButton.textContent = 'Start Session';
+                this.toggleButton.disabled = false;
+                this.updateStatus('Ready');
+            }
+
+            async getClientToken(keyOrToken) {
+                const looksLikeRealKey = keyOrToken.startsWith('sk-');
+                if (!looksLikeRealKey) return keyOrToken; // Already an ephemeral client token
+
+                this.updateStatus('Creating ephemeral token...');
+                const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${keyOrToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ model: 'gpt-4o-realtime-preview', voice: 'alloy' })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Failed to create session (${response.status})`);
+                }
+
+                const data = await response.json();
+                const token = data && data.client_secret && data.client_secret.value;
+                if (!token) throw new Error('No client_secret.value in session response');
+                return token;
+            }
+
+            async waitForIceGathering(conn) {
+                if (conn.iceGatheringState === 'complete') return;
+                await new Promise(resolve => {
+                    const check = () => {
+                        if (conn.iceGatheringState === 'complete') {
+                            conn.removeEventListener('icegatheringstatechange', check);
+                            resolve();
+                        }
+                    };
+                    conn.addEventListener('icegatheringstatechange', check);
+                });
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            new RealtimeAudioClient();
+        });
+    </script>
+</body>
+</html>
