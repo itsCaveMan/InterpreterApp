@@ -1,0 +1,52 @@
+
+
+
+you have to get in and dirty and architect this shit yourself. AI is only getting 80% there at best. 
+
+
+
+If there is only 1 device (e.g 1 phone), then just use google translate
+
+
+# Smooth Conversation friendly system
+
+2 devices 
+
+phone A: (for the english speaker)
+- my phone
+- connects to headset - kr ouput - kr -> en
+- Mic is given to korean speaker - kr input
+
+phone B: (for the korean speaker)
+- second phone
+- Mic is attached to headset - en input
+- phone is speaker - en -> kr output
+
+2 website instances
+- 1 for En to Kr (my phone, A)
+- 1 for Kr to En (second phone, B)
+
+how to deal with overlap
+- Goal
+    - use can just keep talking continously, with pauses
+    - a 1~1.5s long pause will trigger a translation
+    - overlap problem - while playing translation, user speaks again and stops the stream
+    - solution: que up the next stream until the previous response has played back
+how to que like this?
+- method 1. use openai's manaul turn detection. 
+- continously record the users mic. divide audio into blocks (by pauses), feed 1 block through at a time
+- send block to realtime, listen to response, when response finishes, send next block
+problem - can you send a whole block of audio? or does it have to be streamed to openai realtime
+missing features: turns. it just keeps talking until finished.
+reset after 5s - a que'd recording block is cleared after 5 seconds. the thinking is that by that point there was enough silence 
+that it is now awkward and that translation will be ignored anyway if played
+
+method 2 (tried): multiple realtime streams
+- if overlapping speech starts, just use a second realtime stream. 
+- it's messy. doesn't work
+
+
+
+
+
+
