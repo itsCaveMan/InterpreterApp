@@ -1,0 +1,253 @@
+<!--
+
+    DOCUMENTATION:
+    - The purpose of this page is to interpret the users speech from one language to another language.
+    - This page makes use of the device's microphone and speaker.
+    - The page creates a session with Google Gemini Live (Stream realtime) to handle the interpretation. 
+    
+    - GEMINI LIVE (STREAM REALTIME):
+        - This page uses the Gemini Live WebRTC connect flow.
+        - The browser sends an SDP offer and receives an SDP answer for low-latency audio in/out.
+
+    THE BARGIN PROBLEM: 
+    - the Realtime service will cut off if the user starts talking. This is called bargin. it is a result of auto matic turn detection. 
+    - An example is: A user speaks a sentence and it's sent to Realtime. Realtime starts streaming the response, however as the user starts speaking agian, the Realtime stream is cut. The user "barged in" 
+    - this results in a very unsmooth interpretation experience. 
+    - The goal is that the user can continuously speak comfortably, and this page will dynamically handle the audio chunks + Realtime so that all the audio is A) sent to Realtime, and B) the response is played out completely. 
+
+
+-->
+
+<!-- Working realtime. however bargin is not solved here -->
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Real-time Translation Service</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <script>
+        window.translatorComponent = function () {
+            return {
+                session: null,
+                localStream: null,
+                isConnected: false,
+                
+
+                apiKey: '',
+                prompt: 'Translate this English to Korean',
+                statusMessage: 'Ready to start',
+                isBusy: false,
+
+                init() {
+                    const savedApiKey = localStorage.getItem('google-api-key');
+                    const savedPrompt = localStorage.getItem('translation-prompt');
+                    if (savedApiKey) this.apiKey = savedApiKey;
+                    if (savedPrompt) this.prompt = savedPrompt;
+                    this.$watch('apiKey', (v) => localStorage.setItem('google-api-key', v));
+                    this.$watch('prompt', (v) => localStorage.setItem('translation-prompt', v));
+                },
+
+                updateStatus(message) {
+                    this.statusMessage = message;
+                },
+
+                async toggleSession() {
+                    if (!this.isConnected) {
+                        await this.startSession();
+                    } else {
+                        this.stopSession();
+                    }
+                },
+
+                async startSession() {
+                    const apiKey = (this.apiKey || '').trim();
+                    const prompt = (this.prompt || '').trim();
+                    if (!apiKey) {
+                        this.updateStatus('Please enter your Google API key');
+                        return;
+                    }
+                    if (!prompt) {
+                        this.updateStatus('Please enter a translation prompt');
+                        return;
+                    }
+
+                    try {
+                        this.isBusy = true;
+                        this.updateStatus('Requesting microphone...');
+
+                        this.localStream = await navigator.mediaDevices.getUserMedia({
+                            audio: {
+                                echoCancellation: true,
+                                noiseSuppression: true,
+                                autoGainControl: true
+                            }
+                        });
+
+                        const micTrack = this.localStream.getAudioTracks()[0];
+                        await this.createSession(micTrack, apiKey, prompt);
+                        this.isBusy = false;
+                    } catch (error) {
+                        console.error('Error starting sessions:', error);
+                        this.updateStatus('Error: ' + (error && error.message ? error.message : String(error)));
+                        this.isBusy = false;
+                        this.stopSession();
+                    }
+                },
+
+                async getClientToken(keyOrToken) {
+                    // For Gemini Live in the browser, use the API key directly.
+                    return keyOrToken;
+                },
+
+                async waitForIceGathering(conn) {
+                    if (conn.iceGatheringState === 'complete') return;
+                    await new Promise((resolve) => {
+                        const check = () => {
+                            if (conn.iceGatheringState === 'complete') {
+                                conn.removeEventListener('icegatheringstatechange', check);
+                                resolve();
+                            }
+                        };
+                        conn.addEventListener('icegatheringstatechange', check);
+                    });
+                },
+
+                async createSession(micTrack, keyOrToken, prompt) {
+                    try {
+                        const clientToken = await this.getClientToken(keyOrToken);
+                        const pc = new RTCPeerConnection({
+                            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                        });
+
+                        const localStreamForThisSession = new MediaStream([micTrack]);
+                        pc.addTrack(micTrack, localStreamForThisSession);
+
+                        const inboundStream = new MediaStream();
+                        pc.ontrack = (event) => {
+                            inboundStream.addTrack(event.track);
+                            const audioEl = this.$refs.audio;
+                            audioEl.srcObject = inboundStream;
+                            audioEl.play();
+                        };
+
+                        pc.onconnectionstatechange = () => {
+                            console.log(`Session state:`, pc.connectionState);
+                            if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) {
+                                this.stopSession();
+                            }
+                        };
+
+                        // Create SDP offer and exchange with Gemini Live connect endpoint
+                        const offer = await pc.createOffer({ offerToReceiveAudio: true });
+                        await pc.setLocalDescription(offer);
+                        await this.waitForIceGathering(pc);
+
+                        // NOTE: Keep it simple — send the offer SDP and retrieve the answer SDP.
+                        const connectUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-001:connect?alt=sdp&key=${encodeURIComponent(clientToken)}`;
+                        const sdpResponse = await fetch(connectUrl, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/sdp',
+                            },
+                            body: pc.localDescription.sdp,
+                        });
+                        if (!sdpResponse.ok) {
+                            throw new Error(`SDP exchange failed: ${sdpResponse.status} ${sdpResponse.statusText}`);
+                        }
+                        const answerSdp = await sdpResponse.text();
+                        await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+
+                        micTrack.enabled = true;
+                        const audioEl = this.$refs.audio;
+                        this.session = { pc, inboundStream, audioElement: audioEl, micTrack };
+                        this.isConnected = true;
+                        this.updateStatus('Connected - Speak now');
+                    } catch (error) {
+                        console.error('Session connection error:', error);
+                        this.updateStatus('Error: ' + (error && error.message ? error.message : String(error)));
+                        throw error;
+                    }
+                },
+
+                stopSession() {
+                    this.updateStatus('Disconnecting...');
+                    const s = this.session;
+                    if (s) {
+                        try {
+                            if (s.pc) s.pc.close();
+                        } catch (_) {}
+                        try {
+                            if (s.micTrack) s.micTrack.stop();
+                        } catch (_) {}
+                    }
+                    this.session = null;
+                    if (this.localStream) {
+                        this.localStream.getTracks().forEach((track) => track.stop());
+                    }
+                    this.localStream = null;
+                    this.isConnected = false;
+                    this.resetUI();
+                },
+
+                resetUI() {
+                    this.isBusy = false;
+                    this.updateStatus('Ready to start');
+                },
+            };
+        };
+    </script>
+
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-4 py-6 max-w-md" x-data="translatorComponent()">
+        <h1 class="text-2xl font-bold text-center mb-6 text-gray-800">
+            Real-time Translation
+        </h1>
+        
+        <div class="mb-4">
+            <label for="apiKey" class="block text-sm font-medium text-gray-700 mb-2">
+                Google API Key
+            </label>
+            <input 
+                type="password" 
+                id="apiKey" 
+                placeholder="Enter your Google API key"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                x-model="apiKey"
+            >
+        </div>
+
+        <div class="mb-4">
+            <label for="prompt" class="block text-sm font-medium text-gray-700 mb-2">
+                Translation Prompt
+            </label>
+            <textarea 
+                id="prompt" 
+                rows="3"
+                placeholder="e.g., Translate this English to Korean"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 resize-none"
+                x-model="prompt"
+            ></textarea>
+        </div>
+
+        <div class="mb-6">
+            <button 
+                class="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-3 px-4 rounded-md transition-colors"
+                @click="toggleSession()"
+                :disabled="isBusy"
+                x-text="isConnected ? 'Stop Translation Session' : 'Start Translation Session'"
+            ></button>
+        </div>
+
+        <div class="text-center text-sm text-gray-600 mb-4" x-text="statusMessage"></div>
+
+        <audio x-ref="audio" autoplay playsinline class="hidden"></audio>
+    </div>
+</body>
+</html>
+
+
+

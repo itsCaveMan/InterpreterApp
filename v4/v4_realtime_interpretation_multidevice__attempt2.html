@@ -1,0 +1,657 @@
+<!--
+
+    DOCUMENTATION:
+    - The purpose of this page is to interpret the users speech from one language to another language.
+    - This page makes use of the device's microphone and speaker.
+    - The page creates a session with OpenAI Realtime to handle the interpretation. 
+    
+    - OPENAI REALTIME DOCUMENTATION:
+        - The Realtime turn detection is manual, and handled by this page.
+        - This page controls who's turn it is to speak (between the user input or Realtime response).
+        - This page captures all the micrphone input, and keeps it in a buffer.
+        - The page creates a que of blocks(sentences/phrases) from the user's speech to be sent to OpenAI Realtime.
+        - When the response from 1 block is finished, the page sends the next block to OpenAI Realtime.
+
+    THE BARGIN PROBLEM: 
+    - the Realtime service will cut off if the user starts talking. This is called bargin. it is a result of auto matic turn detection. 
+    - An example is: A user speaks a sentence and it's sent to Realtime. Realtime starts streaming the response, however as the user starts speaking agian, the Realtime stream is cut. The user "barged in" 
+    - this results in a very unsmooth interpretation experience. 
+    - The goal is that the user can continuously speak comfortably, and this page will dynamically handle the audio chunks + Realtime so that all the audio is A) sent to Realtime, and B) the response is played out completely. 
+
+
+-->
+
+<!-- Working realtime. however bargin is not solved here -->
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Real-time Translation Service</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <script>
+        window.translatorComponent = function () {
+            return {
+                session: null,
+                localStream: null,
+                isConnected: false,
+                
+
+                apiKey: '',
+                prompt: 'Translate this English to Korean',
+                statusMessage: 'Ready to start',
+                isBusy: false,
+
+                // Mic buffering state
+                audioContext: null,
+                micSource: null,
+                processorNode: null,
+                audioSampleRate: 0,
+                lastRms: 0,
+                isVoiceActive: false,
+                lastSilenceStartMs: 0,
+                currentSamples: [], // array of Float32Array chunks
+                micQueue: [], // array of blocks { id, base64, createdAtMs, sampleRate, numSamples, durationMs, byteLength, previewUrl }
+
+                // Tunables
+                silenceThresholdRms: 0.01,
+                minSilenceMsToSplit: 800,
+                minVoiceMsToStart: 120,
+                maxBlockMs: 15000,
+                dropBlockAfterMs: 120000,
+
+                // Manual turn control
+                isModelStreaming: false,
+                schedulerTimer: null,
+
+                init() {
+                    const savedApiKey = localStorage.getItem('openai-api-key');
+                    const savedPrompt = localStorage.getItem('translation-prompt');
+                    if (savedApiKey) this.apiKey = savedApiKey;
+                    if (savedPrompt) this.prompt = savedPrompt;
+                    this.$watch('apiKey', (v) => localStorage.setItem('openai-api-key', v));
+                    this.$watch('prompt', (v) => localStorage.setItem('translation-prompt', v));
+                },
+
+                updateStatus(message) {
+                    this.statusMessage = message;
+                },
+
+                async toggleSession() {
+                    if (!this.isConnected) {
+                        await this.startSession();
+                    } else {
+                        this.stopSession();
+                    }
+                },
+
+                async startSession() {
+                    const apiKey = (this.apiKey || '').trim();
+                    const prompt = (this.prompt || '').trim();
+                    if (!apiKey) {
+                        this.updateStatus('Please enter your OpenAI API key');
+                        return;
+                    }
+                    if (!prompt) {
+                        this.updateStatus('Please enter a translation prompt');
+                        return;
+                    }
+
+                    try {
+                        this.isBusy = true;
+                        this.updateStatus('Requesting microphone...');
+
+                        this.localStream = await navigator.mediaDevices.getUserMedia({
+                            audio: {
+                                echoCancellation: true,
+                                noiseSuppression: true,
+                                autoGainControl: true
+                            }
+                        });
+
+                        // Start local mic buffering/segmentation
+                        await this.startMicProcessing();
+
+                        const micTrack = this.localStream.getAudioTracks()[0];
+                        await this.createSession(micTrack, apiKey, prompt);
+
+                        // Start scheduler to drive one-block-at-a-time processing
+                        this.schedulerTimer = setInterval(() => this.tickScheduler(), 100);
+                        this.isBusy = false;
+                    } catch (error) {
+                        console.error('Error starting sessions:', error);
+                        this.updateStatus('Error: ' + (error && error.message ? error.message : String(error)));
+                        this.isBusy = false;
+                        this.stopSession();
+                    }
+                },
+
+                async getClientToken(keyOrToken) {
+                    const looksLikeRealKey = keyOrToken.startsWith('sk-');
+                    if (!looksLikeRealKey) return keyOrToken;
+                    this.updateStatus('Creating ephemeral token...');
+                    const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${keyOrToken}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            model: 'gpt-4o-realtime-preview',
+                            voice: 'alloy'
+                        }),
+                    });
+                    if (!response.ok) {
+                        throw new Error(`Failed to create session (${response.status})`);
+                    }
+                    const data = await response.json();
+                    const token = data && data.client_secret && data.client_secret.value;
+                    if (!token) {
+                        throw new Error('No client_secret.value in session response');
+                    }
+                    return token;
+                },
+
+                async waitForIceGathering(conn) {
+                    if (conn.iceGatheringState === 'complete') return;
+                    await new Promise((resolve) => {
+                        const check = () => {
+                            if (conn.iceGatheringState === 'complete') {
+                                conn.removeEventListener('icegatheringstatechange', check);
+                                resolve();
+                            }
+                        };
+                        conn.addEventListener('icegatheringstatechange', check);
+                    });
+                },
+
+                async createSession(micTrack, keyOrToken, prompt) {
+                    try {
+                        const clientToken = await this.getClientToken(keyOrToken);
+                        const pc = new RTCPeerConnection({
+                            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                        });
+
+                        // Receive-only for model audio; we feed mic via data channel buffers
+                        if (pc.addTransceiver) {
+                            pc.addTransceiver('audio', { direction: 'recvonly' });
+                        }
+
+                        const inboundStream = new MediaStream();
+                        pc.ontrack = (event) => {
+                            inboundStream.addTrack(event.track);
+                            const audioEl = this.$refs.audio;
+                            audioEl.srcObject = inboundStream;
+                            audioEl.play();
+                        };
+
+                        pc.onconnectionstatechange = () => {
+                            console.log(`Session state:`, pc.connectionState);
+                            if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) {
+                                this.stopSession();
+                            }
+                        };
+
+                        const dc = pc.createDataChannel(`oai-events`);
+                        dc.onopen = () => {
+                            // Configure session; do not auto-create responses
+                            dc.send(JSON.stringify({
+                                type: 'session.update',
+                                session: {
+                                    instructions: prompt,
+                                    turn_detection: { type: 'server_vad', create_response: false },
+                                    input_audio_format: { type: 'pcm16', sample_rate: 24000 },
+                                    voice: 'alloy',
+                                    modalities: ['audio', 'text']
+                                }
+                            }));
+                            this.isConnected = true;
+                            this.updateStatus('Connected - Speak now');
+                        };
+
+                        dc.onmessage = (event) => {
+                            // Track streaming state based on server events
+                            try {
+                                const msg = JSON.parse(event.data);
+                                const type = msg && msg.type;
+                                if (
+                                    type === 'response.output_audio.delta' ||
+                                    type === 'response.output_audio.start' ||
+                                    type === 'response.created' ||
+                                    type === 'response.delta'
+                                ) {
+                                    this.isModelStreaming = true;
+                                }
+                                if (
+                                    type === 'response.completed' ||
+                                    type === 'response.output_audio.done' ||
+                                    type === 'response.canceled'
+                                ) {
+                                    this.isModelStreaming = false;
+                                }
+                            } catch (_) {
+                                // ignore non-JSON
+                            }
+                        };
+
+                        const offer = await pc.createOffer({ offerToReceiveAudio: true });
+                        await pc.setLocalDescription(offer);
+                        await this.waitForIceGathering(pc);
+
+                        const sdpResponse = await fetch('https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview', {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${clientToken}`,
+                                'Content-Type': 'application/sdp',
+                            },
+                            body: pc.localDescription.sdp,
+                        });
+                        if (!sdpResponse.ok) {
+                            throw new Error(`SDP exchange failed: ${sdpResponse.status} ${sdpResponse.statusText}`);
+                        }
+                        const answerSdp = await sdpResponse.text();
+                        await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+
+                        const audioEl = this.$refs.audio;
+                        this.session = { pc, dc, inboundStream, audioElement: audioEl };
+                    } catch (error) {
+                        console.error('Session connection error:', error);
+                        this.updateStatus('Error: ' + (error && error.message ? error.message : String(error)));
+                        throw error;
+                    }
+                },
+
+                tickScheduler() {
+                    // Only send next when model is idle
+                    if (!this.session || !this.session.dc || this.session.dc.readyState !== 'open') return;
+                    if (this.isModelStreaming) return;
+                    // always try to process next block
+                    if (this.micQueue.length === 0) return;
+                    const next = this.micQueue.shift();
+                    this.sendBlockToRealtime(next);
+                },
+
+                sendBlockToRealtime(block) {
+                    if (!block || !block.base64) return;
+                    const dc = this.session && this.session.dc;
+                    if (!dc || dc.readyState !== 'open') return;
+                    try {
+                        // clear previous input
+                        dc.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
+                        // append audio in chunks
+                        const CHUNK_SIZE = 15000; // chars
+                        for (let i = 0; i < block.base64.length; i += CHUNK_SIZE) {
+                            const chunk = block.base64.slice(i, i + CHUNK_SIZE);
+                            dc.send(JSON.stringify({ type: 'input_audio_buffer.append', audio: chunk }));
+                        }
+                        // commit and request response
+                        dc.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
+                        dc.send(JSON.stringify({
+                            type: 'response.create',
+                            response: {
+                                instructions: (this.prompt || '').trim(),
+                                modalities: ['audio'],
+                                audio: { voice: 'alloy' }
+                            }
+                        }));
+                        this.isModelStreaming = true;
+                        this.updateStatus('Translating...');
+                    } catch (e) {
+                        console.error('Failed to send block:', e);
+                    }
+                },
+
+                async startMicProcessing() {
+                    if (!this.localStream) return;
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    this.micSource = this.audioContext.createMediaStreamSource(this.localStream);
+                    const bufferSize = 4096;
+                    this.processorNode = this.audioContext.createScriptProcessor(bufferSize, 1, 1);
+                    const sampleRate = this.audioContext.sampleRate;
+                    this.audioSampleRate = sampleRate;
+                    let voiceStartedAtMs = 0;
+                    let lastBlockStartMs = performance.now();
+                    this.processorNode.onaudioprocess = (event) => {
+                        const input = event.inputBuffer.getChannelData(0);
+                        // RMS
+                        let sumSquares = 0;
+                        for (let i = 0; i < input.length; i++) sumSquares += input[i] * input[i];
+                        const rms = Math.sqrt(sumSquares / input.length);
+                        this.lastRms = rms;
+                        const nowMs = performance.now();
+
+                        // copy samples
+                        const copy = new Float32Array(input.length);
+                        copy.set(input);
+                        this.currentSamples.push(copy);
+
+                        if (rms >= this.silenceThresholdRms) {
+                            // voice
+                            if (!this.isVoiceActive) {
+                                if (voiceStartedAtMs === 0) voiceStartedAtMs = nowMs;
+                                if ((nowMs - voiceStartedAtMs) >= this.minVoiceMsToStart) {
+                                    this.isVoiceActive = true;
+                                    this.updateStatus('Listening...');
+                                }
+                            }
+                            this.lastSilenceStartMs = 0;
+                        } else {
+                            // silence
+                            if (this.isVoiceActive) {
+                                if (this.lastSilenceStartMs === 0) this.lastSilenceStartMs = nowMs;
+                                const silenceDur = nowMs - this.lastSilenceStartMs;
+                                if (silenceDur >= this.minSilenceMsToSplit) {
+                                    const block = this.finalizeCurrentBlock(sampleRate);
+                                    if (block) {
+                                        this.micQueue.push(block);
+                                        this.updateStatus(`Queued ${this.micQueue.length} block(s)`);
+                                    }
+                                    this.isVoiceActive = false;
+                                    voiceStartedAtMs = 0;
+                                    this.lastSilenceStartMs = 0;
+                                    lastBlockStartMs = nowMs;
+                                }
+                            } else {
+                                voiceStartedAtMs = 0;
+                            }
+                        }
+
+                        // safety cut
+                        if (this.isVoiceActive && (nowMs - lastBlockStartMs) > this.maxBlockMs) {
+                            const block = this.finalizeCurrentBlock(sampleRate);
+                            if (block) {
+                                this.micQueue.push(block);
+                                this.updateStatus(`Queued ${this.micQueue.length} block(s)`);
+                            }
+                            this.isVoiceActive = false;
+                            voiceStartedAtMs = 0;
+                            this.lastSilenceStartMs = 0;
+                            lastBlockStartMs = nowMs;
+                        }
+                    };
+                    this.micSource.connect(this.processorNode);
+                    this.processorNode.connect(this.audioContext.destination);
+                },
+
+                stopMicProcessing() {
+                    try { if (this.processorNode) this.processorNode.disconnect(); } catch (_) {}
+                    try { if (this.micSource) this.micSource.disconnect(); } catch (_) {}
+                    try { if (this.audioContext) this.audioContext.close(); } catch (_) {}
+                    this.processorNode = null;
+                    this.micSource = null;
+                    this.audioContext = null;
+                    this.currentSamples = [];
+                },
+
+                finalizeCurrentBlock(sampleRate) {
+                    if (!this.currentSamples.length) return null;
+                    // merge
+                    let totalLen = 0;
+                    for (const chunk of this.currentSamples) totalLen += chunk.length;
+                    const merged = new Float32Array(totalLen);
+                    let offset = 0;
+                    for (const chunk of this.currentSamples) { merged.set(chunk, offset); offset += chunk.length; }
+                    this.currentSamples = [];
+                    // downsample to 24000 (naive)
+                    const targetRate = 24000;
+                    const ratio = sampleRate / targetRate;
+                    const outLen = Math.floor(merged.length / ratio);
+                    const down = new Float32Array(outLen);
+                    let j = 0;
+                    for (let i = 0; i < outLen; i++) { down[i] = merged[Math.floor(j)]; j += ratio; }
+                    // to PCM16
+                    const pcm16 = new Int16Array(down.length);
+                    for (let i = 0; i < down.length; i++) {
+                        let s = Math.max(-1, Math.min(1, down[i]));
+                        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                    }
+                    const base64 = this.int16ToBase64(pcm16);
+                    const durationMs = Math.round((pcm16.length / targetRate) * 1000);
+                    const byteLength = pcm16.byteLength;
+                    return {
+                        id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                        base64,
+                        createdAtMs: Date.now(),
+                        sampleRate: targetRate,
+                        numSamples: pcm16.length,
+                        durationMs,
+                        byteLength,
+                        previewUrl: ''
+                    };
+                },
+
+                int16ToBase64(int16) {
+                    let binary = '';
+                    const bytes = new Uint8Array(int16.buffer);
+                    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+                    return btoa(binary);
+                },
+
+                ensurePreviewUrl(block) {
+                    if (block.previewUrl) return block.previewUrl;
+                    const wavBlob = this.makeWavFromBase64Pcm16(block.base64, block.sampleRate || 24000);
+                    const url = URL.createObjectURL(wavBlob);
+                    block.previewUrl = url;
+                    return url;
+                },
+
+                playBlock(block) {
+                    try {
+                        const url = this.ensurePreviewUrl(block);
+                        const el = this.$refs.preview;
+                        if (!el) return;
+                        el.src = url;
+                        el.play();
+                    } catch (_) {}
+                },
+
+                removeBlock(id) {
+                    const next = [];
+                    for (const b of this.micQueue) {
+                        if (b.id === id) {
+                            if (b.previewUrl) try { URL.revokeObjectURL(b.previewUrl); } catch (_) {}
+                            continue;
+                        }
+                        next.push(b);
+                    }
+                    this.micQueue = next;
+                },
+
+                clearQueue() {
+                    for (const b of this.micQueue) {
+                        if (b.previewUrl) try { URL.revokeObjectURL(b.previewUrl); } catch (_) {}
+                    }
+                    this.micQueue = [];
+                },
+
+                makeWavFromBase64Pcm16(base64, sampleRate) {
+                    const pcmBytes = this.base64ToUint8Array(base64);
+                    const numChannels = 1;
+                    const bitsPerSample = 16;
+                    const blockAlign = numChannels * bitsPerSample / 8;
+                    const byteRate = sampleRate * blockAlign;
+                    const dataSize = pcmBytes.byteLength;
+                    const headerSize = 44;
+                    const totalSize = headerSize + dataSize;
+                    const buffer = new ArrayBuffer(totalSize);
+                    const view = new DataView(buffer);
+
+                    this.writeString(view, 0, 'RIFF');
+                    view.setUint32(4, totalSize - 8, true);
+                    this.writeString(view, 8, 'WAVE');
+
+                    this.writeString(view, 12, 'fmt ');
+                    view.setUint32(16, 16, true);
+                    view.setUint16(20, 1, true);
+                    view.setUint16(22, numChannels, true);
+                    view.setUint32(24, sampleRate, true);
+                    view.setUint32(28, byteRate, true);
+                    view.setUint16(32, blockAlign, true);
+                    view.setUint16(34, bitsPerSample, true);
+
+                    this.writeString(view, 36, 'data');
+                    view.setUint32(40, dataSize, true);
+
+                    const out = new Uint8Array(buffer, headerSize);
+                    out.set(pcmBytes);
+                    return new Blob([buffer], { type: 'audio/wav' });
+                },
+
+                base64ToUint8Array(base64) {
+                    const binary = atob(base64);
+                    const len = binary.length;
+                    const bytes = new Uint8Array(len);
+                    for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+                    return bytes;
+                },
+
+                writeString(view, offset, str) {
+                    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+                },
+
+                stopSession() {
+                    this.updateStatus('Disconnecting...');
+                    const s = this.session;
+                    if (s) {
+                        try {
+                            if (s.dc && s.dc.readyState === 'open') s.dc.close();
+                        } catch (_) {}
+                        try {
+                            if (s.pc) s.pc.close();
+                        } catch (_) {}
+                        try {
+                            if (s.micTrack) s.micTrack.stop();
+                        } catch (_) {}
+                    }
+                    this.session = null;
+                    if (this.localStream) {
+                        this.localStream.getTracks().forEach((track) => track.stop());
+                    }
+                    this.localStream = null;
+                    this.isConnected = false;
+                    if (this.schedulerTimer) { clearInterval(this.schedulerTimer); this.schedulerTimer = null; }
+                    this.stopMicProcessing();
+                    try { for (const b of this.micQueue) { if (b.previewUrl) URL.revokeObjectURL(b.previewUrl); } } catch (_) {}
+                    this.resetUI();
+                },
+
+                resetUI() {
+                    this.isBusy = false;
+                    this.micQueue = [];
+                    this.currentSamples = [];
+                    this.updateStatus('Ready to start');
+                },
+            };
+        };
+    </script>
+
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-4 py-6 max-w-md" x-data="translatorComponent()">
+        <h1 class="text-2xl font-bold text-center mb-6 text-gray-800">
+            Real-time Translation
+        </h1>
+        
+        <div class="mb-4">
+            <label for="apiKey" class="block text-sm font-medium text-gray-700 mb-2">
+                OpenAI API Key
+            </label>
+            <input 
+                type="password" 
+                id="apiKey" 
+                placeholder="Enter your OpenAI API key"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                x-model="apiKey"
+            >
+        </div>
+
+        <div class="mb-4">
+            <label for="prompt" class="block text-sm font-medium text-gray-700 mb-2">
+                Translation Prompt
+            </label>
+            <textarea 
+                id="prompt" 
+                rows="3"
+                placeholder="e.g., Translate this English to Korean"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 resize-none"
+                x-model="prompt"
+            ></textarea>
+        </div>
+
+        <div class="mb-6">
+            <button 
+                class="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-3 px-4 rounded-md transition-colors"
+                @click="toggleSession()"
+                :disabled="isBusy"
+                x-text="isConnected ? 'Stop Translation Session' : 'Start Translation Session'"
+            ></button>
+        </div>
+
+        <div class="text-center text-sm text-gray-600 mb-4" x-text="statusMessage"></div>
+
+        <audio x-ref="audio" autoplay playsinline class="hidden"></audio>
+        <!-- Hidden audio for local preview of buffered blocks -->
+        <audio x-ref="preview" class="hidden"></audio>
+
+        <!-- Mic Buffering Diagnostics -->
+        <div class="mt-6 p-4 border rounded-lg bg-white shadow-sm text-sm space-y-2">
+            <div class="font-semibold text-gray-800">Mic Buffer Diagnostics</div>
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <div class="text-gray-500">RMS</div>
+                    <div class="font-mono" x-text="lastRms.toFixed(3)"></div>
+                </div>
+                <div>
+                    <div class="text-gray-500">Sample rate</div>
+                    <div class="font-mono" x-text="audioSampleRate || '—'"></div>
+                </div>
+                <div>
+                    <div class="text-gray-500">Voice active</div>
+                    <div class="font-mono" x-text="isVoiceActive"></div>
+                </div>
+                <div>
+                    <div class="text-gray-500">Queue length</div>
+                    <div class="font-mono" x-text="micQueue.length"></div>
+                </div>
+                <div>
+                    <div class="text-gray-500">Model streaming</div>
+                    <div class="font-mono" x-text="isModelStreaming ? 'yes' : 'no'"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mic Buffer Blocks -->
+        <div class="mt-4 p-4 border rounded-lg bg-white shadow-sm text-sm">
+            <div class="font-semibold text-gray-800 mb-2">Mic Blocks</div>
+            <div class="space-y-2 max-h-64 overflow-auto">
+                <template x-for="(b, idx) in micQueue" :key="b.id">
+                    <div class="p-2 border rounded flex items-center justify-between">
+                        <div class="space-y-1">
+                            <div class="font-mono text-xs text-gray-500" x-text="`#${idx+1} · id=${b.id}`"></div>
+                            <div class="font-mono text-xs">
+                                <span>created:</span> <span x-text="b.createdAtMs"></span>
+                                <span class="ml-2">duration:</span> <span x-text="(b.durationMs/1000).toFixed(2) + 's'"></span>
+                                <span class="ml-2">size:</span> <span x-text="(b.byteLength/1024).toFixed(1) + ' KB'"></span>
+                                <span class="ml-2">rate:</span> <span x-text="(b.sampleRate||24000) + ' Hz'"></span>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button class="px-2 py-1 text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 rounded" @click="playBlock(b)">Play</button>
+                            <button class="px-2 py-1 text-xs bg-red-50 hover:bg-red-100 text-red-700 rounded" @click="removeBlock(b.id)">Remove</button>
+                        </div>
+                    </div>
+                </template>
+                <template x-if="micQueue.length === 0">
+                    <div class="text-gray-500 text-sm">No blocks queued yet. Speak to create blocks.</div>
+                </template>
+            </div>
+            <div class="mt-3">
+                <button class="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded" @click="clearQueue()">Clear queue</button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+
