@@ -3,11 +3,13 @@
     DOCUMENTATION:
     - The purpose of this page is to interpret the users speech from one language to another language.
     - This page makes use of the device's microphone and speaker.
-    - The page creates a session with Google Gemini Live (Stream realtime) to handle the interpretation. 
+    - This page creates a session with Google Gemini Live (Stream realtime) via a WebSocket server.
     
-    - GEMINI LIVE (STREAM REALTIME):
-        - This page uses the Gemini Live WebRTC connect flow.
-        - The browser sends an SDP offer and receives an SDP answer for low-latency audio in/out.
+    - WEBSOCKET AUDIO RELAY:
+        - The browser captures audio and sends it to the Node.js server.
+        - The server relays the audio to the Gemini Live API.
+        - The server receives the interpreted audio from Gemini and sends it back to the browser.
+        - The browser plays the received audio.
 
     THE BARGIN PROBLEM: 
     - the Realtime service will cut off if the user starts talking. This is called bargin. it is a result of auto matic turn detection. 
@@ -30,15 +32,18 @@
     <script>
         window.translatorComponent = function () {
             return {
-                session: null,
+                ws: null,
                 localStream: null,
+                audioContext: null,
+                processor: null,
                 isConnected: false,
                 
-
                 apiKey: '',
                 prompt: 'Translate this English to Korean',
                 statusMessage: 'Ready to start',
                 isBusy: false,
+                audioQueue: [],
+                isPlaying: false,
 
                 init() {
                     const savedApiKey = localStorage.getItem('google-api-key');
@@ -62,12 +67,7 @@
                 },
 
                 async startSession() {
-                    const apiKey = (this.apiKey || '').trim();
                     const prompt = (this.prompt || '').trim();
-                    if (!apiKey) {
-                        this.updateStatus('Please enter your Google API key');
-                        return;
-                    }
                     if (!prompt) {
                         this.updateStatus('Please enter a translation prompt');
                         return;
@@ -75,19 +75,58 @@
 
                     try {
                         this.isBusy = true;
-                        this.updateStatus('Requesting microphone...');
+                        this.updateStatus('Connecting to server...');
 
-                        this.localStream = await navigator.mediaDevices.getUserMedia({
-                            audio: {
-                                echoCancellation: true,
-                                noiseSuppression: true,
-                                autoGainControl: true
+                        this.ws = new WebSocket(`ws://${window.location.host}`);
+
+                        this.ws.onopen = async () => {
+                            this.updateStatus('Requesting microphone...');
+                            this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                            this.audioContext = new AudioContext();
+                            
+                            await this.audioContext.audioWorklet.addModule('/v5/audio-processor.js');
+                            const audioWorkletNode = new AudioWorkletNode(this.audioContext, 'audio-processor');
+                            
+                            const source = this.audioContext.createMediaStreamSource(this.localStream);
+                            source.connect(audioWorkletNode);
+                            audioWorkletNode.connect(this.audioContext.destination);
+
+                            audioWorkletNode.port.onmessage = (event) => {
+                                const float32Audio = event.data;
+                                const base64Audio = this.float32ToBase64(float32Audio);
+                                if (this.isConnected) {
+                                    this.ws.send(JSON.stringify({ action: 'audio', audio: base64Audio }));
+                                }
+                            };
+
+                            this.ws.send(JSON.stringify({ action: 'start', prompt: this.prompt }));
+                            this.isConnected = true;
+                            this.isBusy = false;
+                            this.updateStatus('Connected - Speak now');
+                        };
+
+                        this.ws.onmessage = (event) => {
+                            const message = JSON.parse(event.data);
+                            if (message.type === 'audio') {
+                                this.audioQueue.push(this.base64ToArrayBuffer(message.data));
+                                if (!this.isPlaying) {
+                                    this.playNextAudio();
+                                }
                             }
-                        });
+                        };
 
-                        const micTrack = this.localStream.getAudioTracks()[0];
-                        await this.createSession(micTrack, apiKey, prompt);
-                        this.isBusy = false;
+                        this.ws.onclose = () => {
+                            this.updateStatus('Disconnected');
+                            this.stopSession();
+                        };
+
+                        this.ws.onerror = (error) => {
+                            console.error('WebSocket Error:', error);
+                            this.updateStatus('Error: Could not connect to the server.');
+                            this.isBusy = false;
+                            this.isConnected = false;
+                        };
+
                     } catch (error) {
                         console.error('Error starting sessions:', error);
                         this.updateStatus('Error: ' + (error && error.message ? error.message : String(error)));
@@ -96,97 +135,22 @@
                     }
                 },
 
-                async getClientToken(keyOrToken) {
-                    // For Gemini Live in the browser, use the API key directly.
-                    return keyOrToken;
-                },
-
-                async waitForIceGathering(conn) {
-                    if (conn.iceGatheringState === 'complete') return;
-                    await new Promise((resolve) => {
-                        const check = () => {
-                            if (conn.iceGatheringState === 'complete') {
-                                conn.removeEventListener('icegatheringstatechange', check);
-                                resolve();
-                            }
-                        };
-                        conn.addEventListener('icegatheringstatechange', check);
-                    });
-                },
-
-                async createSession(micTrack, keyOrToken, prompt) {
-                    try {
-                        const clientToken = await this.getClientToken(keyOrToken);
-                        const pc = new RTCPeerConnection({
-                            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-                        });
-
-                        const localStreamForThisSession = new MediaStream([micTrack]);
-                        pc.addTrack(micTrack, localStreamForThisSession);
-
-                        const inboundStream = new MediaStream();
-                        pc.ontrack = (event) => {
-                            inboundStream.addTrack(event.track);
-                            const audioEl = this.$refs.audio;
-                            audioEl.srcObject = inboundStream;
-                            audioEl.play();
-                        };
-
-                        pc.onconnectionstatechange = () => {
-                            console.log(`Session state:`, pc.connectionState);
-                            if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) {
-                                this.stopSession();
-                            }
-                        };
-
-                        // Create SDP offer and exchange with Gemini Live connect endpoint
-                        const offer = await pc.createOffer({ offerToReceiveAudio: true });
-                        await pc.setLocalDescription(offer);
-                        await this.waitForIceGathering(pc);
-
-                        // NOTE: Keep it simple — send the offer SDP and retrieve the answer SDP.
-                        const connectUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-001:connect?alt=sdp&key=${encodeURIComponent(clientToken)}`;
-                        const sdpResponse = await fetch(connectUrl, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/sdp',
-                            },
-                            body: pc.localDescription.sdp,
-                        });
-                        if (!sdpResponse.ok) {
-                            throw new Error(`SDP exchange failed: ${sdpResponse.status} ${sdpResponse.statusText}`);
-                        }
-                        const answerSdp = await sdpResponse.text();
-                        await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
-
-                        micTrack.enabled = true;
-                        const audioEl = this.$refs.audio;
-                        this.session = { pc, inboundStream, audioElement: audioEl, micTrack };
-                        this.isConnected = true;
-                        this.updateStatus('Connected - Speak now');
-                    } catch (error) {
-                        console.error('Session connection error:', error);
-                        this.updateStatus('Error: ' + (error && error.message ? error.message : String(error)));
-                        throw error;
-                    }
-                },
-
                 stopSession() {
                     this.updateStatus('Disconnecting...');
-                    const s = this.session;
-                    if (s) {
-                        try {
-                            if (s.pc) s.pc.close();
-                        } catch (_) {}
-                        try {
-                            if (s.micTrack) s.micTrack.stop();
-                        } catch (_) {}
+                    if (this.ws) {
+                        this.ws.send(JSON.stringify({ action: 'stop' }));
+                        this.ws.close();
+                        this.ws = null;
                     }
-                    this.session = null;
                     if (this.localStream) {
                         this.localStream.getTracks().forEach((track) => track.stop());
+                        this.localStream = null;
                     }
-                    this.localStream = null;
+                    if (this.audioContext) {
+                        this.audioContext.close();
+                        this.audioContext = null;
+                    }
+                    // No need to disconnect processor, it's handled by the audio context closing
                     this.isConnected = false;
                     this.resetUI();
                 },
@@ -195,6 +159,59 @@
                     this.isBusy = false;
                     this.updateStatus('Ready to start');
                 },
+
+                float32ToBase64(float32Array) {
+                    const pcm16 = new Int16Array(float32Array.length);
+                    for (let i = 0; i < float32Array.length; i++) {
+                        let s = Math.max(-1, Math.min(1, float32Array[i]));
+                        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                    }
+                    const u8 = new Uint8Array(pcm16.buffer);
+                    return btoa(String.fromCharCode.apply(null, u8));
+                },
+
+                base64ToArrayBuffer(base64) {
+                    const binaryString = window.atob(base64);
+                    const len = binaryString.length;
+                    const bytes = new Uint8Array(len);
+                    for (let i = 0; i < len; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    return bytes.buffer;
+                },
+
+                async playNextAudio() {
+                    if (this.audioQueue.length === 0) {
+                        this.isPlaying = false;
+                        return;
+                    }
+                    this.isPlaying = true;
+                    
+                    const rawPcmData = this.audioQueue.shift();
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    
+                    // Gemini native audio model outputs 16kHz mono audio.
+                    const sampleRate = 16000; 
+                    const pcm16 = new Int16Array(rawPcmData);
+                    const float32 = new Float32Array(pcm16.length);
+                    
+                    // Convert 16-bit PCM to 32-bit float
+                    for (let i = 0; i < pcm16.length; i++) {
+                        float32[i] = pcm16[i] / 32767;
+                    }
+
+                    const audioBuffer = audioContext.createBuffer(1, float32.length, sampleRate);
+                    audioBuffer.copyToChannel(float32, 0);
+
+                    const source = audioContext.createBufferSource();
+                    source.buffer = audioBuffer;
+                    source.connect(audioContext.destination);
+                    source.start(0);
+                    source.onended = () => {
+                        audioContext.close();
+                        this.playNextAudio();
+                    };
+                }
             };
         };
     </script>
@@ -242,9 +259,18 @@
             ></button>
         </div>
 
+        <div class="mb-6" x-show="localStream">
+            <button 
+                class="w-full bg-gray-600 hover:bg-gray-700 text-white font-medium py-2 px-4 rounded-md transition-colors"
+                @click="resetState()"
+            >
+                Reload
+            </button>
+        </div>
+
         <div class="text-center text-sm text-gray-600 mb-4" x-text="statusMessage"></div>
 
-        <audio x-ref="audio" autoplay playsinline class="hidden"></audio>
+        <!-- Audio element is no longer needed for direct playback -->
     </div>
 </body>
 </html>
